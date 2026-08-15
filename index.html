@@ -1,5 +1,11 @@
+<meta charset="utf-8">
 <title>Sentinel Guard</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d141c">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   :root{
     --bg:#0d141c; --surface:#151f2a; --surface2:#1b2733; --raised:#20303f;
@@ -12578,7 +12584,23 @@ var qrcode = function() {
     "<g fill='none' stroke='#4a5a6a' stroke-width='4'><path d='M120 250 L175 120 L255 120 L235 250'/><path d='M310 250 L340 150 L440 150 L480 250'/></g>"+
     "<g transform='translate(272,150)'><path d='M0 -34 L30 20 L-30 20 Z' fill='#e0a43b'/><rect x='-3' y='-14' width='6' height='18' fill='#0b1017'/><circle cx='0' cy='12' r='3' fill='#0b1017'/></g>"+
     "<text x='280' y='335' fill='#9db0c1' font-family='monospace' font-size='17' text-anchor='middle'>PARKING B2 · LOW LIGHT</text></svg>");
-  let pendingPhoto=null, pendingSev="Medium", cpSearch="", pendingScanCode=null;
+  let pendingPhoto=null, pendingSev="Medium", cpSearch="", pendingScanCode=null, pendingGeo=null;
+  function mapsLink(g){ return "https://maps.google.com/?q="+g.lat+","+g.lng; }
+  function updateGeoUI(){
+    const el=document.getElementById("geoStatus"); if(!el)return;
+    if(pendingGeo===undefined){ el.innerHTML='📍 <span style="color:var(--warn)">Location unavailable</span> — allow location to verify presence'; }
+    else if(pendingGeo){ el.innerHTML='📍 <span style="color:var(--ok)">Location locked</span> · ±'+pendingGeo.acc+'m'; }
+    else { el.innerHTML="📍 Locating…"; }
+  }
+  function captureGeo(){
+    pendingGeo=null; // "locating"
+    if(!navigator.geolocation){ pendingGeo=undefined; updateGeoUI(); return; }
+    navigator.geolocation.getCurrentPosition(
+      p=>{ pendingGeo={lat:+p.coords.latitude.toFixed(6),lng:+p.coords.longitude.toFixed(6),acc:Math.round(p.coords.accuracy||0)}; updateGeoUI(); },
+      ()=>{ pendingGeo=undefined; updateGeoUI(); },
+      {enableHighAccuracy:true,timeout:8000,maximumAge:15000}
+    );
+  }
   function scanURL(code){ return location.origin+location.pathname+"?cp="+encodeURIComponent(code); }
   function qrDataURL(text,cell=6,margin=4){
     try{ const qr=window.qrcode(0,"M"); qr.addData(text); qr.make(); return qr.createDataURL(cell,margin); }
@@ -12609,10 +12631,10 @@ var qrcode = function() {
     // a prior completed round earlier tonight by Rajesh
     const base=t-2*h;
     const scans=[
-      {id:uid("s"),cpId:"c1",cpName:"Main Lobby",guardId:"g1",guardName:"Rajesh Kumar",status:"normal",note:"",ts:base},
-      {id:uid("s"),cpId:"c2",cpName:"Pool Gate",guardId:"g1",guardName:"Rajesh Kumar",status:"normal",note:"",ts:base+6*60000},
-      {id:uid("s"),cpId:"c5",cpName:"Parking B2",guardId:"g1",guardName:"Rajesh Kumar",status:"issue",severity:"Medium",note:"Light near the ramp is flickering — poor visibility on the lower level.",photo:PH,resolved:false,ts:base+14*60000},
-      {id:uid("s"),cpId:"c7",cpName:"Loading Bay",guardId:"g1",guardName:"Rajesh Kumar",status:"normal",note:"",ts:base+21*60000},
+      {id:uid("s"),cpId:"c1",cpName:"Main Lobby",guardId:"g1",guardName:"Rajesh Kumar",status:"normal",note:"",geo:{lat:24.545210,lng:54.428900,acc:8},ts:base},
+      {id:uid("s"),cpId:"c2",cpName:"Pool Gate",guardId:"g1",guardName:"Rajesh Kumar",status:"normal",note:"",geo:{lat:24.545602,lng:54.429410,acc:11},ts:base+6*60000},
+      {id:uid("s"),cpId:"c5",cpName:"Parking B2",guardId:"g1",guardName:"Rajesh Kumar",status:"issue",severity:"Medium",note:"Light near the ramp is flickering — poor visibility on the lower level.",photo:PH,geo:{lat:24.544980,lng:54.428310,acc:19},resolved:false,ts:base+14*60000},
+      {id:uid("s"),cpId:"c7",cpName:"Loading Bay",guardId:"g1",guardName:"Rajesh Kumar",status:"normal",note:"",geo:{lat:24.544710,lng:54.429900,acc:14},ts:base+21*60000},
     ];
     return {guards,checkpoints,scans};
   }
@@ -12736,7 +12758,7 @@ var qrcode = function() {
                 ${s.resolved?'<span class="pill mut">Resolved</span>':""}
               </div>
               <p style="margin:7px 0 8px;font-size:14.5px">${esc(s.note||"")}</p>
-              <div class="mono" style="font-size:12px;color:var(--faint)">${esc(s.guardName)} · ${fmtD(s.ts)} ${fmtT(s.ts)}</div>
+              <div class="mono" style="font-size:12px;color:var(--faint)">${esc(s.guardName)} · ${fmtD(s.ts)} ${fmtT(s.ts)}${s.geo?` · <a href="${mapsLink(s.geo)}" target="_blank" rel="noopener" style="color:var(--ok);text-decoration:none">📍 GPS verified ±${s.geo.acc}m</a>`:` · <span style="color:var(--warn)">no GPS</span>`}</div>
             </div>
             ${s.resolved?"":`<button class="btn btn-ghost" data-act="resolve" data-id="${s.id}" style="flex:none;padding:7px 11px;font-size:13px">Mark resolved</button>`}
           </div>`).join("")}</div>`:`<div class="card"><div class="empty">No issues reported. All checkpoints clear. ✓</div></div>`}`;
@@ -12746,7 +12768,7 @@ var qrcode = function() {
         <div class="shead"><h2>Patrol log</h2><span class="ey">${rows.length} scans</span></div>
         <div class="card scroll">
           <table class="tbl">
-            <thead><tr><th>Time</th><th>Date</th><th>Guard</th><th>Checkpoint</th><th>Status</th><th>Note</th></tr></thead>
+            <thead><tr><th>Time</th><th>Date</th><th>Guard</th><th>Checkpoint</th><th>Status</th><th>Location</th><th>Note</th></tr></thead>
             <tbody>
               ${rows.length?rows.map(s=>`<tr>
                 <td class="mono">${fmtT(s.ts)}</td>
@@ -12754,8 +12776,9 @@ var qrcode = function() {
                 <td>${esc(s.guardName)}</td>
                 <td>${esc(s.cpName)}</td>
                 <td>${s.status==="issue"?`<span class="pill ${sevCls(s.severity)}"><span class="dot"></span>${esc(s.severity||"Issue")}</span>`:`<span class="pill ok"><span class="dot"></span>Normal</span>`}</td>
+                <td>${s.geo?`<a class="mono" href="${mapsLink(s.geo)}" target="_blank" rel="noopener" style="color:var(--ok);font-size:12px;text-decoration:none">📍 ±${s.geo.acc}m</a>`:`<span class="pill mut" title="No GPS captured">no GPS</span>`}</td>
                 <td class="muted">${s.note?esc(s.note):"—"}</td>
-              </tr>`).join(""):`<tr><td colspan="6"><div class="empty">No patrols recorded yet.</div></td></tr>`}
+              </tr>`).join(""):`<tr><td colspan="7"><div class="empty">No patrols recorded yet.</div></td></tr>`}
             </tbody>
           </table>
         </div>`;
@@ -12894,11 +12917,12 @@ var qrcode = function() {
   }
 
   function scanModal(cp){
-    pendingPhoto=null; pendingSev="Medium";
+    pendingPhoto=null; pendingSev="Medium"; captureGeo();
     const m=modal(`
       <div class="ey">Checkpoint reached</div>
       <h3 style="margin-top:6px">${esc(cp.name)}</h3>
       <div class="muted mono" style="font-size:13px;margin-top:2px">${esc(cp.zone)} · <span id="clk">${fmtT(now())}</span></div>
+      <div id="geoStatus" class="mono" style="font-size:12px;margin-top:7px;color:var(--muted)">📍 Locating…</div>
       <div id="choice">
         <label class="f" for="note" style="margin-top:18px">Note <span style="text-transform:none;letter-spacing:0;color:var(--faint)">(optional)</span></label>
         <input class="inp" id="note" placeholder="e.g. all clear">
@@ -13022,7 +13046,7 @@ var qrcode = function() {
       case "confirmscan": {
         const cp=state.checkpoints.find(c=>c.id===id); const g=state.guards.find(x=>x.id===session.guardId);
         const note=(($("#note")||{}).value||"").trim();
-        if(cp&&g){ state.scans.push({id:uid("s"),cpId:cp.id,cpName:cp.name,guardId:g.id,guardName:g.name,status:"normal",note,ts:now()}); save(); }
+        if(cp&&g){ state.scans.push({id:uid("s"),cpId:cp.id,cpName:cp.name,guardId:g.id,guardName:g.name,status:"normal",note,geo:pendingGeo||null,ts:now()}); save(); }
         closeModal(); renderGuard(); flash(cp?cp.name+" patrolled":"Checkpoint logged"); break;
       }
       case "reportissue": { const c=$("#choice"),f=$("#issueform"); if(c)c.hidden=true; if(f){f.hidden=false; setTimeout(()=>{const d=$("#desc");d&&d.focus();},30);} break; }
@@ -13033,7 +13057,7 @@ var qrcode = function() {
         const cp=state.checkpoints.find(c=>c.id===id); const g=state.guards.find(x=>x.id===session.guardId);
         const desc=(($("#desc")||{}).value||"").trim();
         if(!desc){ const e=$("#ierr"); if(e)e.textContent="Please describe the issue."; const d=$("#desc"); d&&d.focus(); return; }
-        if(cp&&g){ state.scans.push({id:uid("s"),cpId:cp.id,cpName:cp.name,guardId:g.id,guardName:g.name,status:"issue",severity:pendingSev,note:desc,photo:pendingPhoto||null,resolved:false,ts:now()}); save(); }
+        if(cp&&g){ state.scans.push({id:uid("s"),cpId:cp.id,cpName:cp.name,guardId:g.id,guardName:g.name,status:"issue",severity:pendingSev,note:desc,photo:pendingPhoto||null,geo:pendingGeo||null,resolved:false,ts:now()}); save(); }
         closeModal(); renderGuard(); flash("Issue reported at "+(cp?cp.name:"checkpoint")); break;
       }
       case "resolve": { const s=state.scans.find(x=>x.id===id); if(s){s.resolved=true;save();renderManager();flash("Marked resolved");} break; }
@@ -13097,4 +13121,5 @@ var qrcode = function() {
 
   render();
 })();
+if("serviceWorker" in navigator){ window.addEventListener("load",function(){ navigator.serviceWorker.register("sw.js").catch(function(){}); }); }
 </script>
