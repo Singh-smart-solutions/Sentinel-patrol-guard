@@ -12594,7 +12594,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   var state = { hotel_id: null, me: null, guards: [], checkpoints: [], scans: [] };
   var session = { role: null, guard: null, roundStart: now(), round: [] };
   var tab = "overview", cpSearch = "", loginMode = null, loginErr = "", busy = false;
-  var pendingPhoto = null, pendingSev = "Medium", pendingGeo = null, pendingScanCode = null;
+  var pendingPhoto = null, pendingSev = "Medium", pendingGeo = null, pendingScanCode = null, geoPromise = null;
   var camStream = null, camRAF = null;
 
   function flash(msg, bad) {
@@ -12616,18 +12616,22 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   /* ---------- GPS ---------- */
   function updateGeoUI() {
     var el = document.getElementById("geoStatus"); if (!el) return;
-    if (pendingGeo === undefined) el.innerHTML = '📍 <span style="color:var(--warn)">Location unavailable</span> — allow location to verify presence';
+    if (pendingGeo === undefined) el.innerHTML = '📍 <span style="color:var(--warn)">Location unavailable</span> — turn on location &amp; tap “Allow”';
     else if (pendingGeo) el.innerHTML = '📍 <span style="color:var(--ok)">Location locked</span> · ±' + pendingGeo.acc + "m";
     else el.innerHTML = "📍 Locating…";
   }
-  function captureGeo() {
-    pendingGeo = null;
-    if (!navigator.geolocation) { pendingGeo = undefined; updateGeoUI(); return; }
-    navigator.geolocation.getCurrentPosition(
-      function (p) { pendingGeo = { lat: +p.coords.latitude.toFixed(6), lng: +p.coords.longitude.toFixed(6), acc: Math.round(p.coords.accuracy || 0) }; updateGeoUI(); },
-      function () { pendingGeo = undefined; updateGeoUI(); },
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 15000 }
-    );
+  function requestGeo() {
+    pendingGeo = null; updateGeoUI();
+    geoPromise = new Promise(function (res) {
+      if (!navigator.geolocation) { pendingGeo = undefined; res(undefined); return; }
+      navigator.geolocation.getCurrentPosition(
+        function (p) { pendingGeo = { lat: +p.coords.latitude.toFixed(6), lng: +p.coords.longitude.toFixed(6), acc: Math.round(p.coords.accuracy || 0) }; res(pendingGeo); },
+        function () { pendingGeo = undefined; res(undefined); },
+        { enableHighAccuracy: true, timeout: 12000, maximumAge: 8000 }
+      );
+    });
+    geoPromise.then(updateGeoUI);
+    return geoPromise;
   }
 
   /* ---------- data loading ---------- */
@@ -12805,7 +12809,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   function closeModal() { stopCam(); var m = document.querySelectorAll(".scrim"); for (var i = 0; i < m.length; i++) m[i].remove(); }
 
   function scanModal(cp) {
-    pendingSev = "Medium"; captureGeo();
+    pendingSev = "Medium"; requestGeo();
     var m = modal(
       '<div class="ey">Checkpoint reached</div><h3 style="margin-top:6px">' + esc(cp.name) + '</h3><div class="muted mono" style="font-size:13px;margin-top:2px">' + esc(cp.zone || "") + ' · <span id="clk">' + fmtT(now()) + '</span></div><div id="geoStatus" class="mono" style="font-size:12px;margin-top:7px;color:var(--muted)">📍 Locating…</div>' +
       '<div id="choice"><label class="f" for="note" style="margin-top:18px">Note (optional)</label><input class="inp" id="note" placeholder="e.g. all clear"><div class="big2"><button class="btn btn-primary" data-act="confirmscan" data-id="' + cp.id + '" style="justify-content:center;padding:13px">✓ All normal</button><button class="btn" data-act="reportissue" style="justify-content:center;color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,var(--hair))">⚠ Report an issue</button></div></div>' +
@@ -12898,7 +12902,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         session.guard = { id: r.data[0].id, name: r.data[0].name, token: r.data[0].token };
         localStorage.setItem("sg_guard", JSON.stringify(session.guard));
         session.role = "guard"; session.roundStart = now(); session.round = [];
-        await loadGuardCheckpoints(); render(); maybePendingScan();
+        await loadGuardCheckpoints(); render(); requestGeo(); maybePendingScan();
       }); break;
       case "logout": withBusy(async function () {
         if (session.role === "manager") { try { await SB.auth.signOut(); } catch (e) { } }
@@ -12967,7 +12971,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 
   async function doRecord(cp, status, note, severity) {
     if (!cp) return;
-    var g = pendingGeo || null;
+    var g = null;
+    try { g = await (geoPromise || Promise.resolve(pendingGeo)); } catch (e) { g = null; }
+    if (!g) g = null;
     var r = await SB.rpc("record_scan", {
       p_token: session.guard.token, p_checkpoint_id: cp.id, p_status: status,
       p_note: note || null, p_severity: severity, p_lat: g ? g.lat : null, p_lng: g ? g.lng : null, p_acc: g ? g.acc : null
@@ -12995,7 +13001,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       try {
         session.guard = JSON.parse(gs);
         await loadGuardCheckpoints();
-        session.role = "guard"; session.round = []; render(); maybePendingScan(); return;
+        session.role = "guard"; session.round = []; render(); requestGeo(); maybePendingScan(); return;
       } catch (e) { localStorage.removeItem("sg_guard"); }
     }
     renderLogin();
