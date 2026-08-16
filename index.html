@@ -12632,7 +12632,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   var fmtD = function (ts) { return new Date(ts).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }); };
   var mapsLink = function (g) { return "https://maps.google.com/?q=" + g.lat + "," + g.lng; };
   var GEOFENCE_M = 15;
-  var APP_VERSION = "v11";
+  var APP_VERSION = "v12";
   var scanCp = null;
   function distM(lat1, lng1, lat2, lng2) {
     var R = 6371000, r = Math.PI / 180;
@@ -13213,9 +13213,18 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         var cc = (($("#cc") || {}).value || "").trim().toUpperCase().replace(/\s+/g, "-");
         if (!n) { $("#cn").focus(); return; }
         if (!cc) cc = genCode(n);
-        var r = await SB.from("checkpoints").insert({ hotel_id: state.hotel_id, name: n, zone: z || null, code: cc });
+        if (!state.hotel_id) { flash("You're not signed in as a manager — log out and back in.", true); return; }
+        var r = await SB.from("checkpoints").insert({ hotel_id: state.hotel_id, name: n, zone: z || null, code: cc }).select("*");
         if (r.error) throw r.error;
-        closeModal(); await loadCheckpoints(); renderManager(); flash(n + " added · " + cc);
+        if (!r.data || !r.data.length) { flash("The server didn't save it (permission). Log out and back in, then retry.", true); return; }
+        var newId = r.data[0].id;
+        closeModal(); await loadCheckpoints();
+        if (!state.checkpoints.some(function (x) { return x.id === newId; })) {
+          state.checkpoints.push(r.data[0]); renderManager();
+          flash("Saved, but it isn't linked to your account — ask me for the quick database fix.", true);
+          return;
+        }
+        renderManager(); flash(n + " added · " + cc);
       }); break;
       case "delcp": (function () { var c = state.checkpoints.find(function (x) { return x.id === id; }); if (!c) return; if (!confirm("Remove checkpoint " + c.name + "?")) return; withBusy(async function () { var r = await SB.from("checkpoints").delete().eq("id", id); if (r.error) throw r.error; await loadCheckpoints(); renderManager(); flash(c.name + " removed"); }); })(); break;
       case "setgps": (function () {
@@ -13224,8 +13233,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         flash("Getting location — stand at the checkpoint…");
         navigator.geolocation.getCurrentPosition(function (p) {
           withBusy(async function () {
-            var r = await SB.from("checkpoints").update({ lat: +p.coords.latitude.toFixed(6), lng: +p.coords.longitude.toFixed(6) }).eq("id", id);
-            if (r.error) throw r.error; await loadCheckpoints(); renderManager();
+            var r = await SB.from("checkpoints").update({ lat: +p.coords.latitude.toFixed(6), lng: +p.coords.longitude.toFixed(6) }).eq("id", id).select("*");
+            if (r.error) throw r.error;
+            if (!r.data || !r.data.length) { flash("Location didn't save (permission / row not found). Log out and back in, then retry.", true); return; }
+            await loadCheckpoints(); renderManager();
             flash(c.name + " GPS locked ✓ (±" + Math.round(p.coords.accuracy || 0) + "m)");
           });
         }, function () { flash("Couldn't get location — enable GPS & allow it.", true); }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 });
@@ -13242,8 +13253,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         var ma = parseInt((($("#rAcc") || {}).value || ""), 10);
         if (!(gf > 0)) { var e1 = $("#rerr"); if (e1) e1.textContent = "Enter a check-in radius in metres."; return; }
         if (!(ma > 0)) ma = Math.max(30, Math.round(gf * 2));
-        var r = await SB.from("checkpoints").update({ geofence_m: gf, max_accuracy_m: ma }).eq("id", id);
+        var r = await SB.from("checkpoints").update({ geofence_m: gf, max_accuracy_m: ma }).eq("id", id).select("*");
         if (r.error) throw r.error;
+        if (!r.data || !r.data.length) { flash("Radius didn't save (permission). Log out and back in, then retry.", true); return; }
         closeModal(); await loadCheckpoints(); renderManager(); flash("Radius updated · " + gf + "m (GPS ±" + ma + "m)");
       }); break;
       case "qr": (function () { var c = state.checkpoints.find(function (x) { return x.id === id; }); if (c) qrModal(c); })(); break;
