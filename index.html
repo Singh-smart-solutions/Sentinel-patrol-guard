@@ -12634,7 +12634,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   var fmtD = function (ts) { return new Date(ts).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }); };
   var mapsLink = function (g) { return "https://maps.google.com/?q=" + g.lat + "," + g.lng; };
   var GEOFENCE_M = 15;
-  var APP_VERSION = "v14";
+  var APP_VERSION = "v15";
   var scanCp = null;
   function distM(lat1, lng1, lat2, lng2) {
     var R = 6371000, r = Math.PI / 180;
@@ -12815,8 +12815,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         '<label class="f" for="pw" style="margin-top:12px">Password</label><input class="inp" id="pw" type="password" autocomplete="current-password" placeholder="••••••••">' +
         '<div class="err">' + esc(loginErr) + '</div>' +
         '<button class="btn btn-primary" data-act="mgrsignin" style="width:100%;justify-content:center;margin-top:8px">Sign in</button>' +
-        '<button class="btn btn-ghost" data-act="mgrsignup" style="width:100%;justify-content:center;margin-top:10px">Create manager account</button>' +
-        '<p class="demoNote">First time? Tap “Create manager account” to set up this hotel.</p>' +
+        '<p class="demoNote" style="margin-top:14px">Authorized managers only. Contact your administrator for access.</p>' +
         '</div></div>';
     } else if (loginMode === "guard") {
       app.innerHTML =
@@ -12979,7 +12978,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     setTimeout(function () { var n = $("#note", m); if (n) n.focus(); }, 50);
   }
   function addGuardModal() {
-    modal('<div class="ey">New guard</div><h3 style="margin-top:6px">Add a security guard</h3><div style="margin-top:16px"><label class="f" for="gn">Full name</label><input class="inp" id="gn" placeholder="e.g. Daniel Mwangi"></div><div class="row" style="margin-top:12px"><div><label class="f" for="gp">Phone</label><input class="inp" id="gp" placeholder="+…"></div><div><label class="f" for="gcode">Login code</label><input class="inp mono" id="gcode" placeholder="e.g. DANIEL" style="text-transform:uppercase"></div></div><div style="margin-top:12px"><label class="f" for="gpn">PIN (4–6 digits)</label><input class="inp mono" id="gpn" inputmode="numeric" maxlength="6" placeholder="auto if blank"></div><div class="big2"><button class="btn btn-primary" data-act="saveguard" style="justify-content:center;padding:13px">Add guard</button><button class="btn btn-ghost" data-act="close" style="justify-content:center">Cancel</button></div>');
+    modal('<div class="ey">New guard</div><h3 style="margin-top:6px">Add a security guard</h3><div style="margin-top:16px"><label class="f" for="gn">Full name</label><input class="inp" id="gn" placeholder="e.g. Daniel Mwangi"></div><div class="row" style="margin-top:12px"><div><label class="f" for="gp">Phone</label><input class="inp" id="gp" placeholder="+…"></div><div><label class="f" for="gcode">Login code</label><input class="inp mono" id="gcode" placeholder="e.g. DANIEL" style="text-transform:uppercase"></div></div><div style="margin-top:12px"><label class="f" for="gpn">PIN (6 digits)</label><input class="inp mono" id="gpn" inputmode="numeric" maxlength="6" placeholder="auto-generate if blank"></div><div class="big2"><button class="btn btn-primary" data-act="saveguard" style="justify-content:center;padding:13px">Add guard</button><button class="btn btn-ghost" data-act="close" style="justify-content:center">Cancel</button></div>');
     setTimeout(function () { $("#gn").focus(); }, 50);
   }
   function addCpModal() {
@@ -13189,8 +13188,12 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         var code = ($("#gc") || {}).value || "", pinv = ($("#gpin") || {}).value || "";
         var r = await SB.rpc("guard_login", { p_code: code.trim(), p_pin: pinv.trim() });
         if (r.error) { loginErr = r.error.message; renderLogin(); return; }
-        if (!r.data || !r.data.length) { loginErr = "Code or PIN not recognised."; renderLogin(); setTimeout(function(){var p=$("#gpin");if(p)p.focus();},30); return; }
-        session.guard = { id: r.data[0].id, name: r.data[0].name, token: r.data[0].token };
+        var res = r.data || {};
+        if (!res.ok) {
+          loginErr = res.reason === "locked" ? "Too many attempts. Try again in " + (res.minutes || 15) + " min." : "Code or PIN not recognised.";
+          renderLogin(); setTimeout(function () { var p = $("#gpin"); if (p) p.focus(); }, 30); return;
+        }
+        session.guard = { id: res.id, name: res.name, token: res.token };
         localStorage.setItem("sg_guard", JSON.stringify(session.guard));
         session.role = "guard"; session.roundStart = now(); session.round = [];
         await loadGuardCheckpoints();
@@ -13216,7 +13219,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         var pn = (($("#gpn") || {}).value || "").trim();
         if (!n) { $("#gn").focus(); return; }
         if (!code) code = n.split(" ")[0].toUpperCase();
-        if (!pn) pn = String(Math.floor(1000 + Math.random() * 9000));
+        if (!pn) pn = String(Math.floor(100000 + Math.random() * 900000));
         var r = await SB.rpc("create_guard", { p_name: n, p_phone: p, p_code: code, p_pin: pn });
         if (r.error) throw r.error;
         closeModal(); await loadGuards(); renderManager(); flash(n + " added · code " + code + " · PIN " + pn);
@@ -13496,9 +13499,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       return new Promise(function (resolve) {
         if (fn === "guard_login") {
           var g = db.guards.find(function (x) { return x.code.toUpperCase() === String(a.p_code).toUpperCase() && x.pin === String(a.p_pin) && x.active; });
-          if (!g) return resolve({ data: [], error: null });
+          if (!g) return resolve({ data: { ok: false, reason: "invalid" }, error: null });
           g.session_token = "demo-" + duid(); save();
-          return resolve({ data: [{ id: g.id, name: g.name, token: g.session_token }], error: null });
+          return resolve({ data: { ok: true, id: g.id, name: g.name, token: g.session_token }, error: null });
         }
         if (fn === "create_guard") { var ng = { id: duid(), hotel_id: "demo-hotel", name: a.p_name, phone: a.p_phone || null, code: String(a.p_code).toUpperCase(), pin: String(a.p_pin), active: true, session_token: null, session_expires: null, created_at: new Date().toISOString() }; db.guards.push(ng); save(); return resolve({ data: ng, error: null }); }
         if (fn === "guard_checkpoints") { return resolve({ data: db.checkpoints.slice(), error: null }); }
@@ -13544,7 +13547,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   async function enterDemoGuard() {
     DEMO = true; SB = MOCK; permCam = true; permGeo = true;
     var r = await SB.rpc("guard_login", { p_code: "RAJESH", p_pin: "1234" });
-    session.guard = { id: r.data[0].id, name: r.data[0].name, token: r.data[0].token };
+    session.guard = { id: r.data.id, name: r.data.name, token: r.data.token };
     session.role = "guard"; session.roundStart = now(); session.round = [];
     await loadGuardCheckpoints(); render();
   }
