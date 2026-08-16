@@ -160,7 +160,7 @@
     .eod-h2 .eod-sub{font-weight:600;text-transform:none;letter-spacing:0;color:#7a828c;font-size:11px}
     .eod-t{width:100%;border-collapse:collapse;font-size:11px}
     .eod-t th{text-align:left;background:#e7ebf0;color:#0b0f14;font-weight:700;font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;padding:6px 7px;border-bottom:2px solid #0b0f14}
-    .eod-t td{padding:5px 7px;border-bottom:1px solid #d6dce2;vertical-align:top;color:#141b24}
+    .eod-t td{padding:3.4px 7px;border-bottom:1px solid #d6dce2;vertical-align:top;color:#141b24}
     .eod-t tbody tr:nth-child(even){background:#f6f8f9}
     .eod-t .num{text-align:right;font-variant-numeric:tabular-nums}
     .eod-mono{font-family:ui-monospace,monospace}
@@ -12847,7 +12847,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       '</div>';
     var tabsArr = [["overview", "Overview"], ["reports", "Reports" + (openIssues ? " · " + openIssues : "")], ["flags", "Security flags" + (state.flags.length ? " · " + state.flags.length : "")], ["log", "Patrol log"], ["team", "Guards"], ["points", "Checkpoints"]];
     var tabs = '<div class="tabs">' + tabsArr.map(function (t) { return '<button class="tab ' + (tab === t[0] ? "active" : "") + '" data-act="tab" data-tab="' + t[0] + '">' + t[1] + "</button>"; }).join("") + "</div>";
-    var toolbar = '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin:2px 0 14px;flex-wrap:wrap"><span class="faint" style="font-size:12.5px">' + esc(state.hotelName) + ' · ' + fmtD(now()) + '</span><button class="btn btn-primary" data-act="eod" style="padding:9px 15px">📄 End-of-Day Report (PDF)</button></div>';
+    var toolbar = '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin:2px 0 14px;flex-wrap:wrap"><span class="faint" style="font-size:12.5px">' + esc(state.hotelName) + ' · ' + fmtD(now()) + '</span><button class="btn btn-primary" data-act="eod" style="padding:9px 15px">📄 Generate Report (PDF)</button></div>';
     var panel = "";
     if (tab === "overview") panel = panelOverview(today);
     else if (tab === "reports") panel = panelReports();
@@ -12992,72 +12992,101 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     setTimeout(function () { window.print(); }, 60);
   }
 
-  /* ---------- end-of-day PDF report ---------- */
-  function buildEOD() {
-    var s0 = startOfToday();
-    var today = state.scans.filter(function (s) { return s.ts >= s0; });
-    var flagsToday = state.flags.filter(function (f) { return Date.parse(f.created_at) >= s0; });
-    var covered = {}; today.forEach(function (s) { covered[s.cpId] = 1; });
-    var coveredN = Object.keys(covered).length, total = state.checkpoints.length;
-    var pct = total ? Math.round(coveredN / total * 100) : 0;
-    var issuesToday = today.filter(function (s) { return s.status === "issue"; });
-    var openIssues = state.scans.filter(function (s) { return s.status === "issue" && !s.resolved; }).length;
-    var activeGuards = state.guards.filter(function (g) { return g.active; }).length;
-    var reportDate = new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  /* ---------- patrol PDF report (date + time range) ---------- */
+  function pad2(n) { return (n < 10 ? "0" : "") + n; }
+  function fmtDateFull(ts) { return new Date(ts).toLocaleDateString([], { weekday: "long", day: "numeric", month: "long", year: "numeric" }); }
+
+  function reportModal() {
+    var d = new Date();
+    var todayStr = d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+    var nowStr = pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+    modal('<div class="ey">Patrol report</div><h3 style="margin-top:6px">Generate a report</h3>' +
+      '<p class="muted" style="font-size:13.5px;margin:6px 0 2px">Pick the day and the time window you want to pull — e.g. one shift.</p>' +
+      '<label class="f" for="rpDate" style="margin-top:12px">Date</label><input class="inp" type="date" id="rpDate" value="' + todayStr + '">' +
+      '<div class="row" style="margin-top:12px"><div><label class="f" for="rpFrom">From</label><input class="inp mono" type="time" id="rpFrom" value="00:00"></div><div><label class="f" for="rpTo">To</label><input class="inp mono" type="time" id="rpTo" value="' + nowStr + '"></div></div>' +
+      '<div class="chiprow" id="rpPresets" style="justify-content:flex-start;flex-wrap:wrap;margin-top:12px">' +
+        '<button class="chip" data-act="rppreset" data-from="00:00" data-to="23:59">Full day</button>' +
+        '<button class="chip" data-act="rppreset" data-from="06:00" data-to="18:00">Day shift</button>' +
+        '<button class="chip" data-act="rppreset" data-from="18:00" data-to="06:00">Night shift</button>' +
+      '</div>' +
+      '<p class="faint" style="font-size:12px;margin-top:8px">Night shift crosses midnight — the report runs from the evening into the next morning.</p>' +
+      '<div class="big2"><button class="btn btn-primary" data-act="genreport" style="justify-content:center;padding:13px">Generate PDF</button><button class="btn btn-ghost" data-act="close" style="justify-content:center">Cancel</button></div>');
+  }
+
+  async function generateReport(dateStr, fromStr, toStr) {
+    if (!dateStr) { flash("Pick a date first.", true); return; }
+    var start = new Date(dateStr + "T" + (fromStr || "00:00") + ":00");
+    var end = new Date(dateStr + "T" + (toStr || "23:59") + ":59");
+    if (end <= start) { end = new Date(end.getTime() + 24 * 3600 * 1000); } // crosses midnight (night shift)
+    flash("Building report…");
+    var sel = "id,checkpoint_id,guard_id,status,note,severity,lat,lng,gps_accuracy,resolved,created_at,scanned_at,checkpoints(name,zone),guards(name)";
+    var sr = await SB.from("scans").select(sel)
+      .gte("scanned_at", start.toISOString()).lte("scanned_at", end.toISOString())
+      .order("scanned_at", { ascending: true }).limit(5000);
+    if (sr.error) throw sr.error;
+    var scans = (sr.data || []).map(function (s) {
+      return {
+        cpId: s.checkpoint_id, cpName: s.checkpoints ? s.checkpoints.name : "—", cpZone: s.checkpoints ? s.checkpoints.zone : "",
+        guardId: s.guard_id, guardName: s.guards ? s.guards.name : "—",
+        status: s.status, note: s.note, severity: s.severity, resolved: s.resolved,
+        geo: s.lat != null ? { lat: s.lat, lng: s.lng, acc: s.gps_accuracy } : null,
+        ts: Date.parse(s.scanned_at || s.created_at)
+      };
+    });
+    var fr = await SB.from("security_flags").select("*")
+      .gte("created_at", start.toISOString()).lte("created_at", end.toISOString())
+      .order("created_at", { ascending: true }).limit(5000);
+    var flags = fr.error ? [] : (fr.data || []);
+    buildReport(start, end, scans, flags);
+  }
+
+  function buildReport(start, end, scans, flags) {
+    var sameDay = start.toDateString() === end.toDateString();
+    var winStr = sameDay
+      ? fmtDateFull(start.getTime()) + " · " + fmtT(start.getTime()) + " – " + fmtT(end.getTime())
+      : fmtDateFull(start.getTime()) + " " + fmtT(start.getTime()) + "  →  " + fmtDateFull(end.getTime()) + " " + fmtT(end.getTime());
     var genStr = new Date().toLocaleString([], { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+    var issues = scans.filter(function (s) { return s.status === "issue"; });
+    var openIssues = issues.filter(function (s) { return !s.resolved; }).length;
+    var covered = {}, gset = {};
+    scans.forEach(function (s) { covered[s.cpId] = 1; if (s.guardId) gset[s.guardId] = 1; });
 
     function stat(n, l) { return '<div class="eod-kpi"><div class="k-n">' + n + '</div><div class="k-l">' + l + '</div></div>'; }
     function sectHead(t, sub) { return '<h2 class="eod-h2">' + t + (sub ? ' <span class="eod-sub">' + sub + '</span>' : "") + '</h2>'; }
 
-    var coverageRows = state.checkpoints.map(function (c) {
-      var hits = today.filter(function (s) { return s.cpId === c.id; }).sort(function (a, b) { return b.ts - a.ts; });
-      var last = hits[0];
-      var st = !last ? '<span class="eb eb-no">Not visited</span>' : (last.status === "issue" ? '<span class="eb eb-iss">Issue</span>' : '<span class="eb eb-ok">Patrolled</span>');
-      return "<tr><td><b>" + esc(c.name) + "</b></td><td>" + esc(c.zone || "—") + "</td><td>" + st + "</td><td>" + (last ? fmtT(last.ts) : "—") + "</td><td>" + (last ? esc(last.guardName) : "—") + '</td><td class="num">' + hits.length + "</td></tr>";
-    }).join("") || '<tr><td colspan="6" class="eod-empty">No checkpoints configured.</td></tr>';
-
-    var cpZone = {}; state.checkpoints.forEach(function (c) { cpZone[c.id] = c.zone || ""; });
-    var logRows = today.slice().sort(function (a, b) { return a.ts - b.ts; }).map(function (s) {
+    var logRows = scans.map(function (s) {
       var st = s.status === "issue" ? '<span class="eb eb-iss">' + esc(s.severity || "Issue") + "</span>" : '<span class="eb eb-ok">Normal</span>';
-      var loc = "<b>" + esc(s.cpName) + "</b>" + (cpZone[s.cpId] ? '<br><span class="eod-faint" style="font-size:9px">' + esc(cpZone[s.cpId]) + "</span>" : "");
       var gps = s.geo ? "±" + s.geo.acc + "m" : '<span class="eod-faint">no GPS</span>';
-      return '<tr><td class="eod-mono">' + fmtD(s.ts) + '</td><td class="num">' + fmtT(s.ts) + "</td><td>" + esc(s.guardName) + "</td><td>" + loc + "</td><td>" + st + "</td><td>" + gps + "</td><td>" + (s.note ? esc(s.note) : "—") + "</td></tr>";
-    }).join("") || '<tr><td colspan="7" class="eod-empty">No patrols recorded today.</td></tr>';
+      return '<tr><td class="eod-mono">' + fmtD(s.ts) + '</td><td class="num">' + fmtT(s.ts) + "</td><td>" + esc(s.guardName) + "</td><td>" + esc(s.cpName) + "</td><td>" + st + "</td><td>" + gps + "</td><td>" + (s.note ? esc(s.note) : "—") + "</td></tr>";
+    }).join("") || '<tr><td colspan="7" class="eod-empty">No patrols recorded in this window.</td></tr>';
 
-    var issueRows = issuesToday.slice().sort(function (a, b) { return a.ts - b.ts; }).map(function (s) {
-      return "<tr><td>" + fmtT(s.ts) + '</td><td><span class="eb ' + (s.severity === "High" ? "eb-iss" : "eb-warn") + '">' + esc(s.severity || "Issue") + "</span></td><td>" + esc(s.cpName) + "</td><td>" + esc(s.guardName) + "</td><td>" + (s.resolved ? '<span class="eb eb-ok">Resolved</span>' : '<span class="eb eb-warn">Open</span>') + "</td><td>" + esc(s.note || "—") + "</td></tr>";
+    var issueRows = issues.map(function (s) {
+      return '<tr><td class="eod-mono">' + fmtD(s.ts) + '</td><td class="num">' + fmtT(s.ts) + "</td><td><b>" + esc(s.cpName) + "</b></td><td>" + esc(s.guardName) + "</td><td>" + (s.resolved ? '<span class="eb eb-ok">Resolved</span>' : '<span class="eb eb-warn">Open</span>') + "</td><td>" + esc(s.note || "—") + "</td></tr>";
     }).join("");
-    var issuesBlock = issuesToday.length
-      ? sectHead("Issues reported", issuesToday.length + " today") + '<table class="eod-t"><thead><tr><th>Time</th><th>Severity</th><th>Checkpoint</th><th>Guard</th><th>Status</th><th>Detail</th></tr></thead><tbody>' + issueRows + "</tbody></table>"
-      : sectHead("Issues reported") + '<p class="eod-clear">✓ No issues reported today — all checkpoints clear.</p>';
+    var issuesBlock = issues.length
+      ? sectHead("Issues reported", issues.length + "") + '<table class="eod-t"><thead><tr><th>Date</th><th>Time</th><th>Location</th><th>Inspected by</th><th>Status</th><th>Detail</th></tr></thead><tbody>' + issueRows + "</tbody></table>"
+      : sectHead("Issues reported") + '<p class="eod-clear">✓ No issues reported in this window.</p>';
 
-    var flagRows = flagsToday.slice().sort(function (a, b) { return Date.parse(b.created_at) - Date.parse(a.created_at); }).map(function (f) {
-      var reason = f.reason === "no_gps" ? "Location off" : f.reason === "accuracy" ? "Weak / suspicious GPS" : "Out of range";
-      return "<tr><td>" + fmtT(Date.parse(f.created_at)) + "</td><td>" + esc(f.guard_name || "—") + "</td><td>" + esc(f.checkpoint_name || "—") + "</td><td>" + reason + '</td><td class="num">' + (f.distance_m != null ? f.distance_m + "m" : "—") + "</td></tr>";
+    var flagRows = flags.map(function (f) {
+      var ts = Date.parse(f.created_at);
+      var reason = f.reason === "no_gps" ? "Location off" : f.reason === "accuracy" ? "Weak / fake GPS" : "Out of range";
+      var dist = f.distance_m != null ? f.distance_m + "m away" : "—";
+      return '<tr><td class="eod-mono">' + fmtD(ts) + '</td><td class="num">' + fmtT(ts) + "</td><td>" + esc(f.guard_name || "—") + "</td><td><b>" + esc(f.checkpoint_name || "—") + "</b></td><td>" + reason + '</td><td class="num">' + dist + "</td></tr>";
     }).join("");
-    var flagsBlock = flagsToday.length
-      ? sectHead("Security flags", flagsToday.length + " today") + '<p class="eod-note">Attempts blocked because the guard was not physically verified at the checkpoint, or had location disabled.</p><table class="eod-t"><thead><tr><th>Time</th><th>Guard</th><th>Checkpoint</th><th>Reason</th><th>Distance</th></tr></thead><tbody>' + flagRows + "</tbody></table>"
-      : sectHead("Security flags") + '<p class="eod-clear">✓ No flagged attempts today — every scan was verified on-site.</p>';
-
-    var guardRows = state.guards.map(function (g) {
-      var gs = today.filter(function (s) { return s.guardId === g.id; });
-      var gi = gs.filter(function (s) { return s.status === "issue"; }).length;
-      var last = gs.slice().sort(function (a, b) { return b.ts - a.ts; })[0];
-      return "<tr><td><b>" + esc(g.name) + '</b></td><td class="eod-mono">' + esc(g.code) + '</td><td class="num">' + gs.length + '</td><td class="num">' + gi + "</td><td>" + (last ? fmtT(last.ts) : "—") + "</td></tr>";
-    }).join("") || '<tr><td colspan="5" class="eod-empty">No guards on record.</td></tr>';
+    var flagsBlock = flags.length
+      ? sectHead("Security flags", flags.length + "") + '<p class="eod-note">Blocked attempts — a guard tried to check in while not physically at the checkpoint, or with location off.</p><table class="eod-t"><thead><tr><th>Date</th><th>Time</th><th>Guard</th><th>Location</th><th>Reason</th><th>Distance</th></tr></thead><tbody>' + flagRows + "</tbody></table>"
+      : sectHead("Security flags") + '<p class="eod-clear">✓ No flagged attempts in this window — every scan was verified on-site.</p>';
 
     var shield = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#0b0f14" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg>';
 
     var html =
       '<div class="eod-page">' +
       '<div class="eod-top"><div class="eod-brand">' + shield + '<div><div class="eod-bt">SENTINEL GUARD</div><div class="eod-bs">Security Patrol System</div></div></div>' +
-      '<div class="eod-meta"><div class="eod-title">End-of-Day Patrol Report</div><div class="eod-hotel">' + esc(state.hotelName) + '</div></div></div>' +
-      '<div class="eod-datebar"><span><b>Report date</b> ' + reportDate + '</span><span><b>Generated</b> ' + genStr + '</span><span><b>Prepared by</b> ' + esc(state.me ? state.me.name : "—") + "</span></div>" +
-      '<div class="eod-kpis">' + stat(today.length, "Scans today") + stat(coveredN + "/" + total, "Checkpoints covered") + stat(pct + "%", "Coverage") + stat(activeGuards, "Guards on duty") + stat(openIssues, "Open issues") + stat(flagsToday.length, "Security flags") + "</div>" +
-      sectHead("Checkpoint coverage") + '<table class="eod-t"><thead><tr><th>Checkpoint</th><th>Zone</th><th>Status</th><th>Last patrol</th><th>By guard</th><th>Scans</th></tr></thead><tbody>' + coverageRows + "</tbody></table>" +
-      sectHead("Full patrol log", today.length + " scans") + '<table class="eod-t"><thead><tr><th>Date</th><th>Time</th><th>Guard</th><th>Location</th><th>Status</th><th>GPS</th><th>Note</th></tr></thead><tbody>' + logRows + "</tbody></table>" +
+      '<div class="eod-meta"><div class="eod-title">Patrol Report</div><div class="eod-hotel">' + esc(state.hotelName) + '</div></div></div>' +
+      '<div class="eod-datebar"><span><b>Report window</b> ' + winStr + '</span><span><b>Generated</b> ' + genStr + '</span><span><b>Prepared by</b> ' + esc(state.me ? state.me.name : "—") + "</span></div>" +
+      '<div class="eod-kpis">' + stat(scans.length, "Scans") + stat(Object.keys(covered).length, "Checkpoints hit") + stat(Object.keys(gset).length, "Guards active") + stat(openIssues, "Open issues") + stat(flags.length, "Security flags") + "</div>" +
+      sectHead("Patrol log", scans.length + " scans") + '<table class="eod-t"><thead><tr><th>Date</th><th>Time</th><th>Guard</th><th>Location</th><th>Status</th><th>GPS</th><th>Detail</th></tr></thead><tbody>' + logRows + "</tbody></table>" +
       issuesBlock + flagsBlock +
-      sectHead("Guard activity") + '<table class="eod-t"><thead><tr><th>Guard</th><th>Code</th><th>Scans</th><th>Issues</th><th>Last active</th></tr></thead><tbody>' + guardRows + "</tbody></table>" +
       '<div class="eod-sign"><div class="eod-sigline">Duty Manager — signature</div><div class="eod-sigline">Date</div></div>' +
       '<div class="eod-foot">Every scan is GPS-verified on the server before it is recorded. · Generated by Sentinel Guard — Singh Smart Solutions · satnamsingh.dev · Confidential</div>' +
       "</div>";
@@ -13065,8 +13094,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     var area = document.getElementById("eodArea");
     if (!area) { flash("Report area missing — reload the app.", true); return; }
     area.innerHTML = html;
+    var oldTitle = document.title;
+    document.title = "Sentinel Guard — Patrol Report " + start.toLocaleDateString();
     document.body.classList.add("printing-eod");
-    var cleanup = function () { document.body.classList.remove("printing-eod"); window.removeEventListener("afterprint", cleanup); };
+    var cleanup = function () { document.body.classList.remove("printing-eod"); document.title = oldTitle; window.removeEventListener("afterprint", cleanup); };
     window.addEventListener("afterprint", cleanup);
     setTimeout(function () { window.print(); }, 90);
     flash("Report ready — choose “Save as PDF” in the print dialog.");
@@ -13204,7 +13235,18 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       case "qr": (function () { var c = state.checkpoints.find(function (x) { return x.id === id; }); if (c) qrModal(c); })(); break;
       case "printqr": (function () { var c = state.checkpoints.find(function (x) { return x.id === id; }); if (c) printQR(c); })(); break;
       case "resolve": withBusy(async function () { var r = await SB.from("scans").update({ resolved: true, resolved_at: new Date().toISOString() }).eq("id", id); if (r.error) throw r.error; await loadScans(); renderManager(); flash("Marked resolved"); }); break;
-      case "eod": withBusy(async function () { flash("Refreshing latest data for the report…"); try { await reloadAll(); } catch (e) { } buildEOD(); }); break;
+      case "eod": reportModal(); break;
+      case "rppreset": (function () {
+        var f = $("#rpFrom"), tt = $("#rpTo");
+        if (f) f.value = t.dataset.from; if (tt) tt.value = t.dataset.to;
+        document.querySelectorAll("#rpPresets .chip").forEach(function (ch) { ch.removeAttribute("data-on"); });
+        t.setAttribute("data-on", "1");
+      })(); break;
+      case "genreport": withBusy(async function () {
+        var dt = (($("#rpDate") || {}).value || ""), fr = (($("#rpFrom") || {}).value || "00:00"), to = (($("#rpTo") || {}).value || "23:59");
+        if (!dt) { flash("Pick a date first.", true); return; }
+        closeModal(); await generateReport(dt, fr, to);
+      }); break;
 
       case "permcam": withBusy(async function () {
         var md = navigator.mediaDevices;
