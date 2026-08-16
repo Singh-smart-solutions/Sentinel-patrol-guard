@@ -129,7 +129,7 @@
   .qrbox{background:#fff;padding:14px;border-radius:12px;display:inline-block}
   .qrbox img{display:block;width:224px;height:224px;image-rendering:pixelated}
   a.btn{text-decoration:none}
-  #printArea{display:none}
+  #printArea,#eodArea{display:none}
   @media print{
     body>*{display:none !important}
     #printArea{display:block !important;text-align:center;color:#000;padding-top:40px}
@@ -137,6 +137,46 @@
     #printArea .pn{font:700 28px system-ui;margin-top:18px}
     #printArea .pc{font:600 20px ui-monospace,monospace;color:#333;margin-top:6px;letter-spacing:.06em}
     #printArea .pb{font:600 13px system-ui;color:#666;margin-top:22px;letter-spacing:.1em}
+    body.printing-eod{background:#fff !important}
+    body.printing-eod #printArea{display:none !important}
+    body.printing-eod #eodArea{display:block !important}
+    @page{size:A4;margin:13mm 14mm}
+    #eodArea{color:#0b0f14;background:#fff;font:11.5px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+    #eodArea *{-webkit-print-color-adjust:exact;print-color-adjust:exact;box-sizing:border-box}
+    .eod-top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2.5px solid #0b0f14;padding-bottom:12px}
+    .eod-brand{display:flex;align-items:center;gap:9px}
+    .eod-bt{font:800 15px system-ui;letter-spacing:.14em}
+    .eod-bs{font-size:9.5px;color:#5b6572;letter-spacing:.05em;margin-top:1px}
+    .eod-meta{text-align:right}
+    .eod-title{font:700 17px system-ui}
+    .eod-hotel{font-size:12px;color:#3a434e;margin-top:2px}
+    .eod-datebar{display:flex;gap:18px;flex-wrap:wrap;font-size:10.5px;color:#3a434e;margin:9px 0 4px;padding-bottom:9px;border-bottom:1px solid #e2e6ea}
+    .eod-datebar b{color:#0b0f14;font-weight:700;margin-right:3px}
+    .eod-kpis{display:flex;gap:8px;margin:14px 0 6px}
+    .eod-kpi{flex:1;border:1px solid #dbe0e5;border-radius:7px;padding:9px 10px;background:#f7f9fa}
+    .eod-kpi .k-n{font:800 19px system-ui;color:#0b0f14}
+    .eod-kpi .k-l{font-size:9px;color:#5b6572;text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
+    .eod-h2{font:700 12.5px system-ui;text-transform:uppercase;letter-spacing:.08em;color:#0b0f14;margin:18px 0 7px;padding-bottom:4px;border-bottom:1px solid #cfd5db}
+    .eod-h2 .eod-sub{font-weight:600;text-transform:none;letter-spacing:0;color:#7a828c;font-size:11px}
+    .eod-t{width:100%;border-collapse:collapse;font-size:10.5px}
+    .eod-t th{text-align:left;background:#0b0f14;color:#fff;font-weight:600;font-size:9px;text-transform:uppercase;letter-spacing:.04em;padding:5px 7px}
+    .eod-t td{padding:4.5px 7px;border-bottom:1px solid #e6e9ec;vertical-align:top}
+    .eod-t tbody tr:nth-child(even){background:#f6f8f9}
+    .eod-t .num{text-align:right;font-variant-numeric:tabular-nums}
+    .eod-mono{font-family:ui-monospace,monospace}
+    .eod-t thead{display:table-header-group}
+    .eod-t tr{break-inside:avoid}
+    .eod-empty,.eod-faint{color:#9aa2ab}
+    .eod-clear{font-size:11px;color:#1f7a3d;background:#eef8f1;border:1px solid #c9e6d3;border-radius:6px;padding:8px 10px}
+    .eod-note{font-size:10px;color:#7a828c;margin:0 0 6px}
+    .eb{display:inline-block;font-size:9px;font-weight:700;padding:1.5px 6px;border-radius:20px;border:1px solid}
+    .eb-ok{color:#1f7a3d;border-color:#bfe3cb;background:#eef8f1}
+    .eb-iss{color:#b42318;border-color:#f4c7c2;background:#fdecea}
+    .eb-warn{color:#9a6b00;border-color:#f0dca8;background:#fdf6e3}
+    .eb-no{color:#7a828c;border-color:#dbe0e5;background:#f1f3f5}
+    .eod-sign{display:flex;gap:40px;margin-top:34px;break-inside:avoid}
+    .eod-sigline{flex:1;border-top:1px solid #0b0f14;padding-top:5px;font-size:9.5px;color:#5b6572}
+    .eod-foot{margin-top:22px;padding-top:9px;border-top:1px solid #e2e6ea;font-size:8.5px;color:#9aa2ab;text-align:center}
   }
   .cam{position:relative;background:#000;border-radius:12px;overflow:hidden;margin-top:14px;aspect-ratio:1/1;border:1px solid var(--hair)}
   .cam video{width:100%;height:100%;object-fit:cover;display:block}
@@ -161,6 +201,7 @@
 
 <main id="app"></main>
 <div id="printArea" aria-hidden="true"></div>
+<div id="eodArea" aria-hidden="true"></div>
 <script>(function webpackUniversalModuleDefinition(root, factory) {
 	if(typeof exports === 'object' && typeof module === 'object')
 		module.exports = factory();
@@ -12599,7 +12640,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     return Math.round(2 * R * Math.asin(Math.min(1, Math.sqrt(a))));
   }
 
-  var state = { hotel_id: null, me: null, guards: [], checkpoints: [], scans: [], flags: [] };
+  var state = { hotel_id: null, hotelName: "My Hotel", me: null, guards: [], checkpoints: [], scans: [], flags: [] };
   var session = { role: null, guard: null, roundStart: now(), round: [] };
   var tab = "overview", cpSearch = "", loginMode = null, loginErr = "", busy = false;
   var pendingPhoto = null, pendingSev = "Medium", pendingGeo = null, pendingScanCode = null, geoPromise = null;
@@ -12699,6 +12740,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     if (prof.error) throw prof.error;
     if (!prof.data) throw new Error("No manager profile. Try signing up first.");
     state.hotel_id = prof.data.hotel_id; state.me = prof.data;
+    try { var h = await SB.from("hotels").select("name").eq("id", state.hotel_id).maybeSingle(); state.hotelName = (h.data && h.data.name) || "My Hotel"; } catch (e) { state.hotelName = "My Hotel"; }
     await reloadAll();
     session.role = "manager"; render();
   }
@@ -12803,6 +12845,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       '</div>';
     var tabsArr = [["overview", "Overview"], ["reports", "Reports" + (openIssues ? " · " + openIssues : "")], ["flags", "Security flags" + (state.flags.length ? " · " + state.flags.length : "")], ["log", "Patrol log"], ["team", "Guards"], ["points", "Checkpoints"]];
     var tabs = '<div class="tabs">' + tabsArr.map(function (t) { return '<button class="tab ' + (tab === t[0] ? "active" : "") + '" data-act="tab" data-tab="' + t[0] + '">' + t[1] + "</button>"; }).join("") + "</div>";
+    var toolbar = '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin:2px 0 14px;flex-wrap:wrap"><span class="faint" style="font-size:12.5px">' + esc(state.hotelName) + ' · ' + fmtD(now()) + '</span><button class="btn btn-primary" data-act="eod" style="padding:9px 15px">📄 End-of-Day Report (PDF)</button></div>';
     var panel = "";
     if (tab === "overview") panel = panelOverview(today);
     else if (tab === "reports") panel = panelReports();
@@ -12810,7 +12853,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     else if (tab === "log") panel = panelLog();
     else if (tab === "team") panel = panelTeam();
     else panel = panelPoints();
-    app.innerHTML = tiles + tabs + panel;
+    app.innerHTML = tiles + toolbar + tabs + panel;
   }
   function tile(n, l, s, color) { return '<div class="card tile"><div class="n"' + (color ? ' style="color:' + color + '"' : "") + ">" + n + '</div><div class="l">' + l + '</div><div class="s">' + s + "</div></div>"; }
 
@@ -12947,6 +12990,83 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     setTimeout(function () { window.print(); }, 60);
   }
 
+  /* ---------- end-of-day PDF report ---------- */
+  function buildEOD() {
+    var s0 = startOfToday();
+    var today = state.scans.filter(function (s) { return s.ts >= s0; });
+    var flagsToday = state.flags.filter(function (f) { return Date.parse(f.created_at) >= s0; });
+    var covered = {}; today.forEach(function (s) { covered[s.cpId] = 1; });
+    var coveredN = Object.keys(covered).length, total = state.checkpoints.length;
+    var pct = total ? Math.round(coveredN / total * 100) : 0;
+    var issuesToday = today.filter(function (s) { return s.status === "issue"; });
+    var openIssues = state.scans.filter(function (s) { return s.status === "issue" && !s.resolved; }).length;
+    var activeGuards = state.guards.filter(function (g) { return g.active; }).length;
+    var reportDate = new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+    var genStr = new Date().toLocaleString([], { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+
+    function stat(n, l) { return '<div class="eod-kpi"><div class="k-n">' + n + '</div><div class="k-l">' + l + '</div></div>'; }
+    function sectHead(t, sub) { return '<h2 class="eod-h2">' + t + (sub ? ' <span class="eod-sub">' + sub + '</span>' : "") + '</h2>'; }
+
+    var coverageRows = state.checkpoints.map(function (c) {
+      var hits = today.filter(function (s) { return s.cpId === c.id; }).sort(function (a, b) { return b.ts - a.ts; });
+      var last = hits[0];
+      var st = !last ? '<span class="eb eb-no">Not visited</span>' : (last.status === "issue" ? '<span class="eb eb-iss">Issue</span>' : '<span class="eb eb-ok">Patrolled</span>');
+      return "<tr><td><b>" + esc(c.name) + "</b></td><td>" + esc(c.zone || "—") + "</td><td>" + st + "</td><td>" + (last ? fmtT(last.ts) : "—") + "</td><td>" + (last ? esc(last.guardName) : "—") + '</td><td class="num">' + hits.length + "</td></tr>";
+    }).join("") || '<tr><td colspan="6" class="eod-empty">No checkpoints configured.</td></tr>';
+
+    var logRows = today.slice().sort(function (a, b) { return a.ts - b.ts; }).map(function (s) {
+      var st = s.status === "issue" ? '<span class="eb eb-iss">' + esc(s.severity || "Issue") + "</span>" : '<span class="eb eb-ok">Normal</span>';
+      return '<tr><td class="num">' + fmtT(s.ts) + "</td><td>" + esc(s.guardName) + "</td><td>" + esc(s.cpName) + "</td><td>" + st + "</td><td>" + (s.geo ? "±" + s.geo.acc + "m" : '<span class="eod-faint">no GPS</span>') + "</td><td>" + (s.note ? esc(s.note) : "—") + "</td></tr>";
+    }).join("") || '<tr><td colspan="6" class="eod-empty">No patrols recorded today.</td></tr>';
+
+    var issueRows = issuesToday.slice().sort(function (a, b) { return a.ts - b.ts; }).map(function (s) {
+      return "<tr><td>" + fmtT(s.ts) + '</td><td><span class="eb ' + (s.severity === "High" ? "eb-iss" : "eb-warn") + '">' + esc(s.severity || "Issue") + "</span></td><td>" + esc(s.cpName) + "</td><td>" + esc(s.guardName) + "</td><td>" + (s.resolved ? '<span class="eb eb-ok">Resolved</span>' : '<span class="eb eb-warn">Open</span>') + "</td><td>" + esc(s.note || "—") + "</td></tr>";
+    }).join("");
+    var issuesBlock = issuesToday.length
+      ? sectHead("Issues reported", issuesToday.length + " today") + '<table class="eod-t"><thead><tr><th>Time</th><th>Severity</th><th>Checkpoint</th><th>Guard</th><th>Status</th><th>Detail</th></tr></thead><tbody>' + issueRows + "</tbody></table>"
+      : sectHead("Issues reported") + '<p class="eod-clear">✓ No issues reported today — all checkpoints clear.</p>';
+
+    var flagRows = flagsToday.slice().sort(function (a, b) { return Date.parse(b.created_at) - Date.parse(a.created_at); }).map(function (f) {
+      var reason = f.reason === "no_gps" ? "Location off" : f.reason === "accuracy" ? "Weak / suspicious GPS" : "Out of range";
+      return "<tr><td>" + fmtT(Date.parse(f.created_at)) + "</td><td>" + esc(f.guard_name || "—") + "</td><td>" + esc(f.checkpoint_name || "—") + "</td><td>" + reason + '</td><td class="num">' + (f.distance_m != null ? f.distance_m + "m" : "—") + "</td></tr>";
+    }).join("");
+    var flagsBlock = flagsToday.length
+      ? sectHead("Security flags", flagsToday.length + " today") + '<p class="eod-note">Attempts blocked because the guard was not physically verified at the checkpoint, or had location disabled.</p><table class="eod-t"><thead><tr><th>Time</th><th>Guard</th><th>Checkpoint</th><th>Reason</th><th>Distance</th></tr></thead><tbody>' + flagRows + "</tbody></table>"
+      : sectHead("Security flags") + '<p class="eod-clear">✓ No flagged attempts today — every scan was verified on-site.</p>';
+
+    var guardRows = state.guards.map(function (g) {
+      var gs = today.filter(function (s) { return s.guardId === g.id; });
+      var gi = gs.filter(function (s) { return s.status === "issue"; }).length;
+      var last = gs.slice().sort(function (a, b) { return b.ts - a.ts; })[0];
+      return "<tr><td><b>" + esc(g.name) + '</b></td><td class="eod-mono">' + esc(g.code) + '</td><td class="num">' + gs.length + '</td><td class="num">' + gi + "</td><td>" + (last ? fmtT(last.ts) : "—") + "</td></tr>";
+    }).join("") || '<tr><td colspan="5" class="eod-empty">No guards on record.</td></tr>';
+
+    var shield = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#0b0f14" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg>';
+
+    var html =
+      '<div class="eod-page">' +
+      '<div class="eod-top"><div class="eod-brand">' + shield + '<div><div class="eod-bt">SENTINEL GUARD</div><div class="eod-bs">Security Patrol System</div></div></div>' +
+      '<div class="eod-meta"><div class="eod-title">End-of-Day Patrol Report</div><div class="eod-hotel">' + esc(state.hotelName) + '</div></div></div>' +
+      '<div class="eod-datebar"><span><b>Report date</b> ' + reportDate + '</span><span><b>Generated</b> ' + genStr + '</span><span><b>Prepared by</b> ' + esc(state.me ? state.me.name : "—") + "</span></div>" +
+      '<div class="eod-kpis">' + stat(today.length, "Scans today") + stat(coveredN + "/" + total, "Checkpoints covered") + stat(pct + "%", "Coverage") + stat(activeGuards, "Guards on duty") + stat(openIssues, "Open issues") + stat(flagsToday.length, "Security flags") + "</div>" +
+      sectHead("Checkpoint coverage") + '<table class="eod-t"><thead><tr><th>Checkpoint</th><th>Zone</th><th>Status</th><th>Last patrol</th><th>By guard</th><th>Scans</th></tr></thead><tbody>' + coverageRows + "</tbody></table>" +
+      sectHead("Full patrol log", today.length + " scans") + '<table class="eod-t"><thead><tr><th>Time</th><th>Guard</th><th>Checkpoint</th><th>Status</th><th>GPS</th><th>Note</th></tr></thead><tbody>' + logRows + "</tbody></table>" +
+      issuesBlock + flagsBlock +
+      sectHead("Guard activity") + '<table class="eod-t"><thead><tr><th>Guard</th><th>Code</th><th>Scans</th><th>Issues</th><th>Last active</th></tr></thead><tbody>' + guardRows + "</tbody></table>" +
+      '<div class="eod-sign"><div class="eod-sigline">Duty Manager — signature</div><div class="eod-sigline">Date</div></div>' +
+      '<div class="eod-foot">Every scan is GPS-verified on the server before it is recorded. · Generated by Sentinel Guard — Singh Smart Solutions · satnamsingh.dev · Confidential</div>' +
+      "</div>";
+
+    var area = document.getElementById("eodArea");
+    if (!area) { flash("Report area missing — reload the app.", true); return; }
+    area.innerHTML = html;
+    document.body.classList.add("printing-eod");
+    var cleanup = function () { document.body.classList.remove("printing-eod"); window.removeEventListener("afterprint", cleanup); };
+    window.addEventListener("afterprint", cleanup);
+    setTimeout(function () { window.print(); }, 90);
+    flash("Report ready — choose “Save as PDF” in the print dialog.");
+  }
+
   /* ---------- camera ---------- */
   function stopCam() { if (camRAF) { cancelAnimationFrame(camRAF); camRAF = null; } if (camStream) { camStream.getTracks().forEach(function (t) { try { t.stop(); } catch (e) { } }); camStream = null; } }
   function parseCode(text) { try { var u = new URL(text); var c = u.searchParams.get("cp"); if (c) return c; } catch (e) { } return (text || "").trim(); }
@@ -13079,6 +13199,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       case "qr": (function () { var c = state.checkpoints.find(function (x) { return x.id === id; }); if (c) qrModal(c); })(); break;
       case "printqr": (function () { var c = state.checkpoints.find(function (x) { return x.id === id; }); if (c) printQR(c); })(); break;
       case "resolve": withBusy(async function () { var r = await SB.from("scans").update({ resolved: true, resolved_at: new Date().toISOString() }).eq("id", id); if (r.error) throw r.error; await loadScans(); renderManager(); flash("Marked resolved"); }); break;
+      case "eod": withBusy(async function () { flash("Refreshing latest data for the report…"); try { await reloadAll(); } catch (e) { } buildEOD(); }); break;
 
       case "permcam": withBusy(async function () {
         var md = navigator.mediaDevices;
