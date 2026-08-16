@@ -12634,7 +12634,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   var fmtD = function (ts) { return new Date(ts).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }); };
   var mapsLink = function (g) { return "https://maps.google.com/?q=" + g.lat + "," + g.lng; };
   var GEOFENCE_M = 15;
-  var APP_VERSION = "v13";
+  var APP_VERSION = "v14";
   var scanCp = null;
   function distM(lat1, lng1, lat2, lng2) {
     var R = 6371000, r = Math.PI / 180;
@@ -13205,7 +13205,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       }); break;
       case "demomgr": withBusy(function () { return enterDemoManager(); }); break;
       case "demoguard": withBusy(function () { return enterDemoGuard(); }); break;
-      case "stafflogin": (function () { SB = REAL; DEMO = false; session = { role: null, guard: null, roundStart: now(), round: [] }; loginMode = null; permCam = false; permGeo = false; renderLogin(); })(); break;
+      case "stafflogin": location.href = location.pathname; break;
       case "resetdemo": (function () { try { localStorage.removeItem("sg_demo_v1"); } catch (e) { } MOCK = makeMock(); flash("Demo reset"); renderDemoHome(); })(); break;
       case "tab": tab = t.dataset.tab; renderManager(); break;
 
@@ -13569,14 +13569,12 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   async function init() {
     var params;
     try { params = new URLSearchParams(location.search); } catch (e) { params = { get: function () { return null; } }; }
-    var forceStaff = params.get("staff") != null || params.get("app") != null || params.get("login") != null;
-    // resume a real signed-in session if one exists
+    // "?demo" opens the public no-login demo; the plain URL is the real app.
+    if (params.get("demo") != null) { renderDemoHome(); return; }
     var resumed = false;
     try { resumed = await realBoot(); } catch (e) { resumed = false; }
     if (resumed) return;
-    // no real session: staff link -> real login screen; otherwise -> public demo
-    if (forceStaff) { SB = REAL; DEMO = false; renderLogin(); return; }
-    renderDemoHome();
+    SB = REAL; DEMO = false; renderLogin();
   }
 
   window.addEventListener("online", function () {
