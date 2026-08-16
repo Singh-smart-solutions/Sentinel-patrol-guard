@@ -13050,6 +13050,12 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     var openIssues = issues.filter(function (s) { return !s.resolved; }).length;
     var covered = {}, gset = {};
     scans.forEach(function (s) { covered[s.cpId] = 1; if (s.guardId) gset[s.guardId] = 1; });
+    var total = state.checkpoints.length;
+    var coveredN = Object.keys(covered).length;
+    var pct = total ? Math.round(coveredN / total * 100) : 0;
+    var activeGuards = state.guards.filter(function (g) { return g.active; }).length;
+    var fullDay = sameDay && start.getHours() === 0 && start.getMinutes() === 0 && end.getHours() === 23 && end.getMinutes() >= 59;
+    var dateLine = fmtDateFull(start.getTime()) + (fullDay ? "" : " · " + fmtT(start.getTime()) + "–" + fmtT(end.getTime()) + (sameDay ? "" : " (+1 day)"));
 
     function stat(n, l) { return '<div class="eod-kpi"><div class="k-n">' + n + '</div><div class="k-l">' + l + '</div></div>'; }
     function sectHead(t, sub) { return '<h2 class="eod-h2">' + t + (sub ? ' <span class="eod-sub">' + sub + '</span>' : "") + '</h2>'; }
@@ -13082,9 +13088,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     var html =
       '<div class="eod-page">' +
       '<div class="eod-top"><div class="eod-brand">' + shield + '<div><div class="eod-bt">SENTINEL GUARD</div><div class="eod-bs">Security Patrol System</div></div></div>' +
-      '<div class="eod-meta"><div class="eod-title">Patrol Report</div><div class="eod-hotel">' + esc(state.hotelName) + '</div></div></div>' +
-      '<div class="eod-datebar"><span><b>Report window</b> ' + winStr + '</span><span><b>Generated</b> ' + genStr + '</span><span><b>Prepared by</b> ' + esc(state.me ? state.me.name : "—") + "</span></div>" +
-      '<div class="eod-kpis">' + stat(scans.length, "Scans") + stat(Object.keys(covered).length, "Checkpoints hit") + stat(Object.keys(gset).length, "Guards active") + stat(openIssues, "Open issues") + stat(flags.length, "Security flags") + "</div>" +
+      '<div class="eod-meta"><div class="eod-title">End-of-Day Patrol Report</div><div class="eod-hotel">' + esc(state.hotelName) + '</div></div></div>' +
+      '<div class="eod-datebar"><span><b>Report date</b> ' + dateLine + '</span><span><b>Generated</b> ' + genStr + '</span><span><b>Prepared by</b> ' + esc(state.me ? state.me.name : "—") + "</span></div>" +
+      '<div class="eod-kpis">' + stat(scans.length, "Scans today") + stat(coveredN + "/" + total, "Checkpoints covered") + stat(pct + "%", "Coverage") + stat(activeGuards, "Guards on duty") + stat(openIssues, "Open issues") + stat(flags.length, "Security flags") + "</div>" +
       sectHead("Patrol log", scans.length + " scans") + '<table class="eod-t"><thead><tr><th>Date</th><th>Time</th><th>Guard</th><th>Location</th><th>Status</th><th>GPS</th><th>Detail</th></tr></thead><tbody>' + logRows + "</tbody></table>" +
       issuesBlock + flagsBlock +
       '<div class="eod-sign"><div class="eod-sigline">Duty Manager — signature</div><div class="eod-sigline">Date</div></div>' +
