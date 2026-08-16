@@ -12632,7 +12632,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   var fmtD = function (ts) { return new Date(ts).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }); };
   var mapsLink = function (g) { return "https://maps.google.com/?q=" + g.lat + "," + g.lng; };
   var GEOFENCE_M = 15;
-  var APP_VERSION = "v10";
+  var APP_VERSION = "v11";
   var scanCp = null;
   function distM(lat1, lng1, lat2, lng2) {
     var R = 6371000, r = Math.PI / 180;
@@ -12865,8 +12865,15 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     return '<div class="shead"><h2>Coverage right now</h2><span class="ey">tonight</span></div><div class="card" style="padding:16px"><div class="cplist">' +
       state.checkpoints.map(function (c) {
         var hits = today.filter(function (s) { return s.cpId === c.id; }).sort(function (a, b) { return b.ts - a.ts; });
-        var last = hits[0]; var isIssue = last && last.status === "issue";
-        return '<div class="cp ' + (last ? "done" : "") + '"><span class="ico"' + (isIssue ? ' style="color:var(--crit);border-color:color-mix(in srgb,var(--crit) 40%,var(--hair));background:var(--crit-soft)"' : "") + ">" + (last ? (isIssue ? warn() : ok()) : pin()) + '</span><span class="grow"><span class="nm">' + esc(c.name) + '</span><br><span class="zn">' + esc(c.zone || "") + '</span></span><span class="rt">' + (last ? '<span class="pill ' + (isIssue ? "crit" : "ok") + '"><span class="dot"></span>' + (isIssue ? "Issue" : "Patrolled") + '</span><br><span class="t">' + esc((last.guardName || "").split(" ")[0]) + " · " + fmtT(last.ts) + "</span>" : '<span class="pill warn"><span class="dot"></span>Not yet</span>') + "</span></div>";
+        var last = hits[0];
+        var activeIssue = last && last.status === "issue" && !last.resolved;   // only unresolved issues are "open"
+        var resolvedIssue = last && last.status === "issue" && last.resolved;
+        var by = last ? '<br><span class="t">' + esc((last.guardName || "").split(" ")[0]) + " · " + fmtT(last.ts) + "</span>" : "";
+        var pill = !last ? '<span class="pill warn"><span class="dot"></span>Not yet</span>'
+          : activeIssue ? '<span class="pill crit"><span class="dot"></span>Issue</span>' + by
+          : resolvedIssue ? '<span class="pill ok"><span class="dot"></span>Resolved</span>' + by
+          : '<span class="pill ok"><span class="dot"></span>Patrolled</span>' + by;
+        return '<div class="cp ' + (last ? "done" : "") + '"><span class="ico"' + (activeIssue ? ' style="color:var(--crit);border-color:color-mix(in srgb,var(--crit) 40%,var(--hair));background:var(--crit-soft)"' : "") + ">" + (last ? (activeIssue ? warn() : ok()) : pin()) + '</span><span class="grow"><span class="nm">' + esc(c.name) + '</span><br><span class="zn">' + esc(c.zone || "") + '</span></span><span class="rt">' + pill + "</span></div>";
       }).join("") + "</div></div>";
   }
   function panelReports() {
