@@ -12632,6 +12632,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   var fmtD = function (ts) { return new Date(ts).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }); };
   var mapsLink = function (g) { return "https://maps.google.com/?q=" + g.lat + "," + g.lng; };
   var GEOFENCE_M = 15;
+  var APP_VERSION = "v10";
   var scanCp = null;
   function distM(lat1, lng1, lat2, lng2) {
     var R = 6371000, r = Math.PI / 180;
@@ -12826,7 +12827,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         '<div class="rolecards">' +
         '<button class="rolecard" data-act="mode" data-mode="manager"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg></span><span><span class="t1">Security Manager</span><span class="t2">Dashboard · manage guards · see every patrol</span></span></button>' +
         '<button class="rolecard" data-act="mode" data-mode="guard"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></span><span><span class="t1">Guard sign-in</span><span class="t2">Log in and start scanning checkpoints</span></span></button>' +
-        '</div><div class="demoNote">Live app · data is stored securely in your Supabase database.</div></div>';
+        '</div><div class="demoNote">Live app · data is stored securely in your Supabase database. · ' + APP_VERSION + '</div></div>';
     }
   }
 
@@ -12847,7 +12848,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       '</div>';
     var tabsArr = [["overview", "Overview"], ["reports", "Reports" + (openIssues ? " · " + openIssues : "")], ["flags", "Security flags" + (state.flags.length ? " · " + state.flags.length : "")], ["log", "Patrol log"], ["team", "Guards"], ["points", "Checkpoints"]];
     var tabs = '<div class="tabs">' + tabsArr.map(function (t) { return '<button class="tab ' + (tab === t[0] ? "active" : "") + '" data-act="tab" data-tab="' + t[0] + '">' + t[1] + "</button>"; }).join("") + "</div>";
-    var toolbar = '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin:2px 0 14px;flex-wrap:wrap"><span class="faint" style="font-size:12.5px">' + esc(state.hotelName) + ' · ' + fmtD(now()) + '</span><button class="btn btn-primary" data-act="eod" style="padding:9px 15px">📄 Generate Report (PDF)</button></div>';
+    var toolbar = '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin:2px 0 14px;flex-wrap:wrap"><span class="faint" style="font-size:12.5px">' + esc(state.hotelName) + ' · ' + fmtD(now()) + ' · ' + APP_VERSION + '</span><button class="btn btn-primary" data-act="eod" style="padding:9px 15px">📄 Generate Report (PDF)</button></div>';
     var panel = "";
     if (tab === "overview") panel = panelOverview(today);
     else if (tab === "reports") panel = panelReports();
@@ -13405,4 +13406,17 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   init();
 })();
 </script>
-<script>if("serviceWorker" in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("sw.js").catch(function(){});});}</script>
+<script>
+if("serviceWorker" in navigator){
+  var _swRefreshing=false, _hadController=!!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener("controllerchange",function(){
+    if(_swRefreshing||!_hadController)return; _swRefreshing=true; window.location.reload();
+  });
+  window.addEventListener("load",function(){
+    navigator.serviceWorker.register("sw.js").then(function(reg){
+      try{reg.update();}catch(e){}
+      setInterval(function(){try{reg.update();}catch(e){}},60000);
+    }).catch(function(){});
+  });
+}
+</script>
