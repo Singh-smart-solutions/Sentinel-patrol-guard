@@ -13016,10 +13016,13 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       return "<tr><td><b>" + esc(c.name) + "</b></td><td>" + esc(c.zone || "—") + "</td><td>" + st + "</td><td>" + (last ? fmtT(last.ts) : "—") + "</td><td>" + (last ? esc(last.guardName) : "—") + '</td><td class="num">' + hits.length + "</td></tr>";
     }).join("") || '<tr><td colspan="6" class="eod-empty">No checkpoints configured.</td></tr>';
 
+    var cpZone = {}; state.checkpoints.forEach(function (c) { cpZone[c.id] = c.zone || ""; });
     var logRows = today.slice().sort(function (a, b) { return a.ts - b.ts; }).map(function (s) {
       var st = s.status === "issue" ? '<span class="eb eb-iss">' + esc(s.severity || "Issue") + "</span>" : '<span class="eb eb-ok">Normal</span>';
-      return '<tr><td class="num">' + fmtT(s.ts) + "</td><td>" + esc(s.guardName) + "</td><td>" + esc(s.cpName) + "</td><td>" + st + "</td><td>" + (s.geo ? "±" + s.geo.acc + "m" : '<span class="eod-faint">no GPS</span>') + "</td><td>" + (s.note ? esc(s.note) : "—") + "</td></tr>";
-    }).join("") || '<tr><td colspan="6" class="eod-empty">No patrols recorded today.</td></tr>';
+      var loc = "<b>" + esc(s.cpName) + "</b>" + (cpZone[s.cpId] ? '<br><span class="eod-faint" style="font-size:9px">' + esc(cpZone[s.cpId]) + "</span>" : "");
+      var gps = s.geo ? "±" + s.geo.acc + "m" : '<span class="eod-faint">no GPS</span>';
+      return '<tr><td class="eod-mono">' + fmtD(s.ts) + '</td><td class="num">' + fmtT(s.ts) + "</td><td>" + esc(s.guardName) + "</td><td>" + loc + "</td><td>" + st + "</td><td>" + gps + "</td><td>" + (s.note ? esc(s.note) : "—") + "</td></tr>";
+    }).join("") || '<tr><td colspan="7" class="eod-empty">No patrols recorded today.</td></tr>';
 
     var issueRows = issuesToday.slice().sort(function (a, b) { return a.ts - b.ts; }).map(function (s) {
       return "<tr><td>" + fmtT(s.ts) + '</td><td><span class="eb ' + (s.severity === "High" ? "eb-iss" : "eb-warn") + '">' + esc(s.severity || "Issue") + "</span></td><td>" + esc(s.cpName) + "</td><td>" + esc(s.guardName) + "</td><td>" + (s.resolved ? '<span class="eb eb-ok">Resolved</span>' : '<span class="eb eb-warn">Open</span>') + "</td><td>" + esc(s.note || "—") + "</td></tr>";
@@ -13052,7 +13055,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       '<div class="eod-datebar"><span><b>Report date</b> ' + reportDate + '</span><span><b>Generated</b> ' + genStr + '</span><span><b>Prepared by</b> ' + esc(state.me ? state.me.name : "—") + "</span></div>" +
       '<div class="eod-kpis">' + stat(today.length, "Scans today") + stat(coveredN + "/" + total, "Checkpoints covered") + stat(pct + "%", "Coverage") + stat(activeGuards, "Guards on duty") + stat(openIssues, "Open issues") + stat(flagsToday.length, "Security flags") + "</div>" +
       sectHead("Checkpoint coverage") + '<table class="eod-t"><thead><tr><th>Checkpoint</th><th>Zone</th><th>Status</th><th>Last patrol</th><th>By guard</th><th>Scans</th></tr></thead><tbody>' + coverageRows + "</tbody></table>" +
-      sectHead("Full patrol log", today.length + " scans") + '<table class="eod-t"><thead><tr><th>Time</th><th>Guard</th><th>Checkpoint</th><th>Status</th><th>GPS</th><th>Note</th></tr></thead><tbody>' + logRows + "</tbody></table>" +
+      sectHead("Full patrol log", today.length + " scans") + '<table class="eod-t"><thead><tr><th>Date</th><th>Time</th><th>Guard</th><th>Location</th><th>Status</th><th>GPS</th><th>Note</th></tr></thead><tbody>' + logRows + "</tbody></table>" +
       issuesBlock + flagsBlock +
       sectHead("Guard activity") + '<table class="eod-t"><thead><tr><th>Guard</th><th>Code</th><th>Scans</th><th>Issues</th><th>Last active</th></tr></thead><tbody>' + guardRows + "</tbody></table>" +
       '<div class="eod-sign"><div class="eod-sigline">Duty Manager — signature</div><div class="eod-sigline">Date</div></div>' +
