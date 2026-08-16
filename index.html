@@ -12621,7 +12621,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   "use strict";
   var SUPABASE_URL = "https://wzwzbkjwcglbrkixtnur.supabase.co";
   var SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind6d3pia2p3Y2dsYnJraXh0bnVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY4MTQxNTQsImV4cCI6MjEwMjM5MDE1NH0.rRlT9c5KC9MWb9_0KrxDl774yrwesWxY2zQmsdexmAs";
-  var SB = supabase.createClient(SUPABASE_URL, SUPABASE_ANON, { auth: { persistSession: true, autoRefreshToken: true } });
+  var REAL = supabase.createClient(SUPABASE_URL, SUPABASE_ANON, { auth: { persistSession: true, autoRefreshToken: true } });
+  var SB = REAL;         // swapped to the in-browser demo backend in demo mode
+  var DEMO = false;
 
   var $ = function (s, r) { return (r || document).querySelector(s); };
   var app = $("#app"), whoEl = $("#who");
@@ -12632,7 +12634,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   var fmtD = function (ts) { return new Date(ts).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }); };
   var mapsLink = function (g) { return "https://maps.google.com/?q=" + g.lat + "," + g.lng; };
   var GEOFENCE_M = 15;
-  var APP_VERSION = "v12";
+  var APP_VERSION = "v13";
   var scanCp = null;
   function distM(lat1, lng1, lat2, lng2) {
     var R = 6371000, r = Math.PI / 180;
@@ -12722,6 +12724,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     }
   }
   function requestGeo() {
+    if (DEMO) {
+      pendingGeo = (scanCp && scanCp.lat != null) ? { lat: scanCp.lat, lng: scanCp.lng, acc: 6 } : { lat: 24.5451, lng: 54.4301, acc: 6 };
+      geoPromise = Promise.resolve(pendingGeo); geoPromise.then(updateGeoUI); return geoPromise;
+    }
     pendingGeo = null; updateGeoUI();
     geoPromise = new Promise(function (res) {
       if (!navigator.geolocation) { pendingGeo = undefined; res(undefined); return; }
@@ -12788,6 +12794,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   }
   function renderWho() {
     if (!session.role) { whoEl.innerHTML = ""; return; }
+    if (DEMO) {
+      var other = session.role === "manager" ? '<button class="btn btn-ghost" data-act="demoguard">View as Guard</button>' : '<button class="btn btn-ghost" data-act="demomgr">View as Manager</button>';
+      whoEl.innerHTML = demoBadge() + '<span class="muted" style="font-size:12px">' + (session.role === "manager" ? "Manager" : "Guard") + '</span>' + other + '<button class="btn btn-ghost" data-act="stafflogin">Staff login</button>';
+      return;
+    }
     if (session.role === "manager") whoEl.innerHTML = '<span class="role">Manager</span><span class="muted" style="font-size:12px">' + esc(state.me ? state.me.name : "") + '</span><button class="btn btn-ghost" data-act="logout">Log out</button>';
     else whoEl.innerHTML = '<span class="role">On patrol</span><span class="muted">' + esc(session.guard ? session.guard.name : "") + '</span><button class="btn btn-ghost" data-act="logout">End shift</button>';
   }
@@ -12940,7 +12951,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       '</div></div>';
   }
   function renderGuard() {
-    if (!(permCam && permGeo)) { renderOnboarding(); return; }
+    if (!DEMO && !(permCam && permGeo)) { renderOnboarding(); return; }
     var g = session.guard;
     var doneIds = {}; session.round.forEach(function (s) { doneIds[s.cpId] = s; });
     var done = Object.keys(doneIds).length, total = state.checkpoints.length;
@@ -13187,10 +13198,15 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         render(); flushQueue(); if (permCam && permGeo) { requestGeo(); maybePendingScan(); }
       }); break;
       case "logout": withBusy(async function () {
+        if (DEMO) { renderDemoHome(); return; }
         if (session.role === "manager") { try { await SB.auth.signOut(); } catch (e) { } }
         localStorage.removeItem("sg_guard");
         session = { role: null, guard: null, roundStart: now(), round: [] }; loginMode = null; render();
       }); break;
+      case "demomgr": withBusy(function () { return enterDemoManager(); }); break;
+      case "demoguard": withBusy(function () { return enterDemoGuard(); }); break;
+      case "stafflogin": (function () { SB = REAL; DEMO = false; session = { role: null, guard: null, roundStart: now(), round: [] }; loginMode = null; permCam = false; permGeo = false; renderLogin(); })(); break;
+      case "resetdemo": (function () { try { localStorage.removeItem("sg_demo_v1"); } catch (e) { } MOCK = makeMock(); flash("Demo reset"); renderDemoHome(); })(); break;
       case "tab": tab = t.dataset.tab; renderManager(); break;
 
       case "addguard": addGuardModal(); break;
@@ -13229,6 +13245,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       case "delcp": (function () { var c = state.checkpoints.find(function (x) { return x.id === id; }); if (!c) return; if (!confirm("Remove checkpoint " + c.name + "?")) return; withBusy(async function () { var r = await SB.from("checkpoints").delete().eq("id", id); if (r.error) throw r.error; await loadCheckpoints(); renderManager(); flash(c.name + " removed"); }); })(); break;
       case "setgps": (function () {
         var c = state.checkpoints.find(function (x) { return x.id === id; }); if (!c) return;
+        if (DEMO) { withBusy(async function () { var r = await SB.from("checkpoints").update({ lat: 24.5451 + Math.random() * 0.002, lng: 54.4301 + Math.random() * 0.002 }).eq("id", id).select("*"); if (r.error) throw r.error; await loadCheckpoints(); renderManager(); flash(c.name + " GPS locked ✓ (demo)"); }); return; }
         if (!navigator.geolocation) { flash("This device has no GPS.", true); return; }
         flash("Getting location — stand at the checkpoint…");
         navigator.geolocation.getCurrentPosition(function (p) {
@@ -13299,7 +13316,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       })(); break;
       case "guardstart": renderGuard(); requestGeo(); maybePendingScan(); break;
 
-      case "scan": (function () { var cp = state.checkpoints.find(function (c) { return c.id === id; }); if (cp) cameraScan(cp); })(); break;
+      case "scan": (function () { var cp = state.checkpoints.find(function (c) { return c.id === id; }); if (cp) { if (DEMO) scanModal(cp); else cameraScan(cp); } })(); break;
       case "reportissue": { var c = $("#choice"), f = $("#issueform"); if (c) c.hidden = true; if (f) { f.hidden = false; setTimeout(function () { var d = $("#desc"); if (d) d.focus(); }, 30); } break; }
       case "backchoice": { var c2 = $("#choice"), f2 = $("#issueform"); if (f2) f2.hidden = true; if (c2) c2.hidden = false; break; }
       case "sev": pendingSev = t.dataset.sev; document.querySelectorAll("#sevrow .chip").forEach(function (ch) { if (ch.dataset.sev === pendingSev) ch.setAttribute("data-on", "1"); else ch.removeAttribute("data-on"); }); break;
@@ -13394,24 +13411,172 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   }
   try { var c = new URLSearchParams(location.search).get("cp"); if (c) pendingScanCode = c; } catch (e) { }
 
+  /* ---------- DEMO backend (no login, sample data, browser-only) ---------- */
+  function duid() { return "d" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+  function demoSeed() {
+    function tAt(h, m) { var d = new Date(); d.setHours(h, m, 0, 0); return d.toISOString(); }
+    var H = "demo-hotel";
+    return {
+      hotels: [{ id: H, name: "Grand Vista Hotel", created_at: tAt(8, 0) }],
+      profiles: [{ id: "demo-mgr", hotel_id: H, name: "Demo Manager", created_at: tAt(8, 0) }],
+      guards: [
+        { id: "g1", hotel_id: H, name: "Rajesh Kumar", phone: "", code: "RAJESH", pin: "1234", active: true, session_token: null, session_expires: null, created_at: tAt(8, 1) },
+        { id: "g2", hotel_id: H, name: "Daniel Mwangi", phone: "", code: "DANIEL", pin: "1234", active: true, session_token: null, session_expires: null, created_at: tAt(8, 2) },
+        { id: "g3", hotel_id: H, name: "Amit Sharma", phone: "", code: "AMIT", pin: "1234", active: true, session_token: null, session_expires: null, created_at: tAt(8, 3) }
+      ],
+      checkpoints: [
+        { id: "c1", hotel_id: H, name: "Main Lobby", zone: "Front of House", code: "LOBBY-01", lat: 24.54510, lng: 54.43010, geofence_m: 15, max_accuracy_m: 30, active: true, created_at: tAt(8, 10) },
+        { id: "c2", hotel_id: H, name: "Spa Entrance", zone: "Wellness", code: "SPA-01", lat: 24.54560, lng: 54.43080, geofence_m: 40, max_accuracy_m: 50, active: true, created_at: tAt(8, 11) },
+        { id: "c3", hotel_id: H, name: "Basement P2", zone: "Parking", code: "PARK-02", lat: 24.54480, lng: 54.42980, geofence_m: 80, max_accuracy_m: 120, active: true, created_at: tAt(8, 12) },
+        { id: "c4", hotel_id: H, name: "Rooftop Deck", zone: "Exterior", code: "ROOF-01", lat: 24.54600, lng: 54.43120, geofence_m: 20, max_accuracy_m: 30, active: true, created_at: tAt(8, 13) },
+        { id: "c5", hotel_id: H, name: "Pool Gate", zone: "Leisure", code: "POOL-01", lat: 24.54540, lng: 54.43050, geofence_m: 15, max_accuracy_m: 30, active: true, created_at: tAt(8, 14) }
+      ],
+      scans: [
+        { id: "s1", hotel_id: H, checkpoint_id: "c1", guard_id: "g1", status: "normal", note: "All clear", severity: null, lat: 24.54511, lng: 54.43011, gps_accuracy: 7, within_geofence: true, resolved: false, resolved_at: null, created_at: tAt(20, 5), scanned_at: tAt(20, 5) },
+        { id: "s2", hotel_id: H, checkpoint_id: "c2", guard_id: "g2", status: "issue", note: "Water leak near reception counter — maintenance notified", severity: "High", lat: 24.54561, lng: 54.43081, gps_accuracy: 9, within_geofence: true, resolved: true, resolved_at: tAt(21, 30), created_at: tAt(20, 42), scanned_at: tAt(20, 42) },
+        { id: "s3", hotel_id: H, checkpoint_id: "c3", guard_id: "g3", status: "normal", note: null, severity: null, lat: 24.54481, lng: 54.42981, gps_accuracy: 41, within_geofence: true, resolved: false, resolved_at: null, created_at: tAt(21, 15), scanned_at: tAt(21, 15) },
+        { id: "s4", hotel_id: H, checkpoint_id: "c4", guard_id: "g1", status: "normal", note: null, severity: null, lat: 24.54601, lng: 54.43121, gps_accuracy: 8, within_geofence: true, resolved: false, resolved_at: null, created_at: tAt(22, 10), scanned_at: tAt(22, 10) },
+        { id: "s5", hotel_id: H, checkpoint_id: "c5", guard_id: "g1", status: "normal", note: "Gate locked", severity: null, lat: 24.54541, lng: 54.43051, gps_accuracy: 6, within_geofence: true, resolved: false, resolved_at: null, created_at: tAt(22, 40), scanned_at: tAt(22, 40) }
+      ],
+      security_flags: [
+        { id: "f1", hotel_id: H, checkpoint_id: "c4", guard_id: "g3", guard_name: "Amit Sharma", checkpoint_name: "Rooftop Deck", lat: 24.5470, lng: 54.4325, accuracy: 12, distance_m: 63, reason: "geofence", created_at: tAt(22, 50) }
+      ]
+    };
+  }
+  function loadDemoDB() { try { var s = localStorage.getItem("sg_demo_v1"); if (s) return JSON.parse(s); } catch (e) { } var d = demoSeed(); try { localStorage.setItem("sg_demo_v1", JSON.stringify(d)); } catch (e) { } return d; }
+  function makeMock() {
+    var db = loadDemoDB();
+    function save() { try { localStorage.setItem("sg_demo_v1", JSON.stringify(db)); } catch (e) { } }
+    function expand(table, r) {
+      if (table !== "scans") return r;
+      var cp = db.checkpoints.find(function (c) { return c.id === r.checkpoint_id; });
+      var g = db.guards.find(function (x) { return x.id === r.guard_id; });
+      return Object.assign({}, r, { checkpoints: cp ? { name: cp.name, zone: cp.zone } : null, guards: g ? { name: g.name } : null });
+    }
+    function from(table) {
+      var op = "select", payload = null, eqs = [], ranges = [], orderCol = null, orderAsc = true, lim = null;
+      function match(r) { return eqs.every(function (f) { return String(r[f[0]]) === String(f[1]); }); }
+      function inRange(r) { return ranges.every(function (f) { return f[0] === "gte" ? r[f[1]] >= f[2] : r[f[1]] <= f[2]; }); }
+      function exec(single) {
+        return new Promise(function (resolve) {
+          try {
+            if (!db[table]) db[table] = [];
+            if (op === "insert") {
+              var arr = Array.isArray(payload) ? payload : [payload];
+              var made = arr.map(function (o) { var row = Object.assign({ id: duid(), created_at: new Date().toISOString() }, o); db[table].push(row); return row; });
+              save(); return resolve({ data: made, error: null });
+            }
+            if (op === "update") { var ch = db[table].filter(function (r) { return match(r); }); ch.forEach(function (r) { Object.assign(r, payload); }); save(); return resolve({ data: ch.slice(), error: null }); }
+            if (op === "delete") { db[table] = db[table].filter(function (r) { return !match(r); }); save(); return resolve({ data: null, error: null }); }
+            var list = db[table].filter(function (r) { return match(r) && inRange(r); }).map(function (r) { return expand(table, r); });
+            if (orderCol) list.sort(function (a, b) { var x = a[orderCol], y = b[orderCol]; return (x > y ? 1 : x < y ? -1 : 0) * (orderAsc ? 1 : -1); });
+            if (lim != null) list = list.slice(0, lim);
+            resolve(single ? { data: list[0] || null, error: null } : { data: list, error: null });
+          } catch (e) { resolve({ data: null, error: { message: e.message } }); }
+        });
+      }
+      var b = {
+        select: function () { return b; },
+        insert: function (o) { op = "insert"; payload = o; return b; },
+        update: function (o) { op = "update"; payload = o; return b; },
+        delete: function () { op = "delete"; return b; },
+        eq: function (c, v) { eqs.push([c, v]); return b; },
+        gte: function (c, v) { ranges.push(["gte", c, v]); return b; },
+        lte: function (c, v) { ranges.push(["lte", c, v]); return b; },
+        order: function (c, o) { orderCol = c; orderAsc = !(o && o.ascending === false); return b; },
+        limit: function (n) { lim = n; return b; },
+        maybeSingle: function () { return exec(true); },
+        single: function () { return exec(true); },
+        then: function (res, rej) { return exec(false).then(res, rej); }
+      };
+      return b;
+    }
+    function rpc(fn, a) {
+      a = a || {};
+      return new Promise(function (resolve) {
+        if (fn === "guard_login") {
+          var g = db.guards.find(function (x) { return x.code.toUpperCase() === String(a.p_code).toUpperCase() && x.pin === String(a.p_pin) && x.active; });
+          if (!g) return resolve({ data: [], error: null });
+          g.session_token = "demo-" + duid(); save();
+          return resolve({ data: [{ id: g.id, name: g.name, token: g.session_token }], error: null });
+        }
+        if (fn === "create_guard") { var ng = { id: duid(), hotel_id: "demo-hotel", name: a.p_name, phone: a.p_phone || null, code: String(a.p_code).toUpperCase(), pin: String(a.p_pin), active: true, session_token: null, session_expires: null, created_at: new Date().toISOString() }; db.guards.push(ng); save(); return resolve({ data: ng, error: null }); }
+        if (fn === "guard_checkpoints") { return resolve({ data: db.checkpoints.slice(), error: null }); }
+        if (fn === "record_scan") {
+          var gd = db.guards.find(function (x) { return x.session_token === a.p_token; });
+          var sc = { id: duid(), hotel_id: "demo-hotel", checkpoint_id: a.p_checkpoint_id, guard_id: gd ? gd.id : "g1", status: a.p_status || "normal", note: a.p_note || null, severity: a.p_severity || null, lat: a.p_lat, lng: a.p_lng, gps_accuracy: a.p_acc, within_geofence: true, resolved: false, resolved_at: null, created_at: new Date().toISOString(), scanned_at: a.p_scanned_at || new Date().toISOString() };
+          db.scans.push(sc); save();
+          return resolve({ data: { ok: true, scan_id: sc.id, verified: true, distance: 5 }, error: null });
+        }
+        resolve({ data: null, error: { message: "unknown rpc " + fn } });
+      });
+    }
+    var auth = {
+      getSession: function () { return Promise.resolve({ data: { session: null } }); },
+      signInWithPassword: function () { return Promise.resolve({ data: {}, error: { message: "Demo mode — use the demo buttons." } }); },
+      signUp: function () { return Promise.resolve({ data: {}, error: { message: "Demo mode." } }); },
+      signOut: function () { return Promise.resolve({ error: null }); }
+    };
+    return { from: from, rpc: rpc, auth: auth };
+  }
+  var MOCK = makeMock();
+
+  function demoBadge() {
+    return '<span class="pill" style="background:var(--accent-soft);color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 45%,transparent);font-weight:700">DEMO</span>';
+  }
+  function renderDemoHome() {
+    DEMO = true; SB = MOCK; permCam = true; permGeo = true;
+    session = { role: null, guard: null, roundStart: now(), round: [] };
+    app.innerHTML =
+      '<div class="login-wrap">' +
+      '<div class="brand" style="justify-content:center;margin-bottom:4px"><span class="logo" style="width:40px;height:40px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg></span></div>' +
+      '<h1 style="font-size:26px;font-weight:750;letter-spacing:-.02em">Sentinel Guard <span style="font-size:14px;vertical-align:middle">' + demoBadge() + '</span></h1>' +
+      '<p class="lead">A live, no-sign-up demo. Explore both sides of the app with sample data — <b>nothing here touches any real records</b>.</p>' +
+      '<div class="rolecards">' +
+      '<button class="rolecard" data-act="demomgr"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg></span><span><span class="t1">Explore as Manager</span><span class="t2">Live dashboard · patrols · issues · PDF report</span></span></button>' +
+      '<button class="rolecard" data-act="demoguard"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></span><span><span class="t1">Explore as Guard</span><span class="t2">Scan checkpoints and log a patrol</span></span></button>' +
+      '</div>' +
+      '<div class="demoNote">Sample hotel · Grand Vista Hotel · resets any time · ' + APP_VERSION + '<br><button class="btn btn-ghost" data-act="stafflogin" style="margin-top:10px">Staff login →</button> <button class="btn btn-ghost" data-act="resetdemo" style="margin-top:10px">Reset demo</button></div>' +
+      '</div>';
+    whoEl.innerHTML = "";
+  }
+  async function enterDemoManager() { DEMO = true; SB = MOCK; await loadManager(); }
+  async function enterDemoGuard() {
+    DEMO = true; SB = MOCK; permCam = true; permGeo = true;
+    var r = await SB.rpc("guard_login", { p_code: "RAJESH", p_pin: "1234" });
+    session.guard = { id: r.data[0].id, name: r.data[0].name, token: r.data[0].token };
+    session.role = "guard"; session.roundStart = now(); session.round = [];
+    await loadGuardCheckpoints(); render();
+  }
+
   /* ---------- boot ---------- */
-  async function init() {
-    try {
-      var s = await SB.auth.getSession();
-      if (s.data.session) { await loadManager(); return; }
-    } catch (e) { }
+  async function realBoot() {
+    try { var s = await REAL.auth.getSession(); if (s.data.session) { SB = REAL; DEMO = false; await loadManager(); return true; } } catch (e) { }
     var gs = localStorage.getItem("sg_guard");
     if (gs) {
       try {
+        SB = REAL; DEMO = false;
         session.guard = JSON.parse(gs);
         await loadGuardCheckpoints();
         await refreshPerms(); await refreshQueued();
         session.role = "guard"; session.round = []; render(); flushQueue();
         if (permCam && permGeo) { requestGeo(); maybePendingScan(); }
-        return;
+        return true;
       } catch (e) { localStorage.removeItem("sg_guard"); }
     }
-    renderLogin();
+    return false;
+  }
+  async function init() {
+    var params;
+    try { params = new URLSearchParams(location.search); } catch (e) { params = { get: function () { return null; } }; }
+    var forceStaff = params.get("staff") != null || params.get("app") != null || params.get("login") != null;
+    // resume a real signed-in session if one exists
+    var resumed = false;
+    try { resumed = await realBoot(); } catch (e) { resumed = false; }
+    if (resumed) return;
+    // no real session: staff link -> real login screen; otherwise -> public demo
+    if (forceStaff) { SB = REAL; DEMO = false; renderLogin(); return; }
+    renderDemoHome();
   }
 
   window.addEventListener("online", function () {
