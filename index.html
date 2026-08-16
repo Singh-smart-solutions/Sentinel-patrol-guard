@@ -12603,7 +12603,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   var session = { role: null, guard: null, roundStart: now(), round: [] };
   var tab = "overview", cpSearch = "", loginMode = null, loginErr = "", busy = false;
   var pendingPhoto = null, pendingSev = "Medium", pendingGeo = null, pendingScanCode = null, geoPromise = null;
-  var camStream = null, camRAF = null;
+  var camStream = null, camRAF = null, permCam = false, permGeo = false;
+  async function refreshPerms() {
+    try { var c = await navigator.permissions.query({ name: "camera" }); permCam = (c.state === "granted"); } catch (e) { }
+    try { var gq = await navigator.permissions.query({ name: "geolocation" }); permGeo = (gq.state === "granted"); } catch (e) { }
+  }
 
   function flash(msg, bad) {
     var f = document.createElement("div"); f.className = "flash";
@@ -12621,18 +12625,58 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     var code = base, n = 1; while (state.checkpoints.some(function (c) { return c.code === code; })) { code = base + "-" + (++n); } return code;
   }
 
+  /* ---------- IndexedDB offline queue ---------- */
+  var idb = null, queuedCount = 0, flushing = false;
+  function openIDB() {
+    return new Promise(function (res) {
+      if (idb) return res(idb);
+      try {
+        var rq = indexedDB.open("sentinel-guard", 1);
+        rq.onupgradeneeded = function () { rq.result.createObjectStore("queue", { keyPath: "id" }); };
+        rq.onsuccess = function () { idb = rq.result; res(idb); };
+        rq.onerror = function () { res(null); };
+      } catch (e) { res(null); }
+    });
+  }
+  async function qPut(item) { var db = await openIDB(); if (!db) return; return new Promise(function (r) { var t = db.transaction("queue", "readwrite"); t.objectStore("queue").put(item); t.oncomplete = function () { r(); }; t.onerror = function () { r(); }; }); }
+  async function qAll() { var db = await openIDB(); if (!db) return []; return new Promise(function (r) { var t = db.transaction("queue", "readonly"); var rq = t.objectStore("queue").getAll(); rq.onsuccess = function () { r(rq.result || []); }; rq.onerror = function () { r([]); }; }); }
+  async function qDel(id) { var db = await openIDB(); if (!db) return; return new Promise(function (r) { var t = db.transaction("queue", "readwrite"); t.objectStore("queue").delete(id); t.oncomplete = function () { r(); }; t.onerror = function () { r(); }; }); }
+  async function refreshQueued() { queuedCount = (await qAll()).length; }
+  async function flushQueue() {
+    if (flushing || !navigator.onLine) return; flushing = true;
+    try {
+      var items = await qAll();
+      for (var i = 0; i < items.length; i++) {
+        var it = items[i];
+        try {
+          var r = await SB.rpc("record_scan", { p_token: it.token, p_checkpoint_id: it.checkpoint_id, p_status: it.status, p_note: it.note, p_severity: it.severity, p_lat: it.lat, p_lng: it.lng, p_acc: it.acc, p_scanned_at: it.scanned_at });
+          if (r.error) { if (!navigator.onLine) break; await qDel(it.id); }   // drop non-network failures so it can't loop forever
+          else { await qDel(it.id); }
+        } catch (e) { if (!navigator.onLine) break; }
+      }
+    } finally { flushing = false; }
+    await refreshQueued();
+    if (session.role === "guard") renderGuard();
+    else if (session.role === "manager") { try { await loadScans(); await loadFlags(); renderManager(); } catch (e) { } }
+  }
+
   /* ---------- GPS ---------- */
   function updateGeoUI() {
     var el = document.getElementById("geoStatus"); if (!el) return;
     if (pendingGeo === undefined) { el.innerHTML = '📍 <span style="color:var(--crit)">Location unavailable</span> — turn on location &amp; tap “Allow”'; return; }
     if (!pendingGeo) { el.innerHTML = "📍 Locating…"; return; }
-    var base = '📍 Location locked · ±' + pendingGeo.acc + "m";
+    var thr = (scanCp && scanCp.geofence_m) || GEOFENCE_M;
+    var maxacc = (scanCp && scanCp.max_accuracy_m) || 30;
+    if (pendingGeo.acc <= 0 || pendingGeo.acc > maxacc) {
+      el.innerHTML = '📍 <span style="color:var(--crit)">Weak GPS · ±' + pendingGeo.acc + "m</span> — move to an open area (need ±" + maxacc + "m)";
+      return;
+    }
     if (scanCp && scanCp.lat != null) {
       var d = distM(pendingGeo.lat, pendingGeo.lng, scanCp.lat, scanCp.lng);
-      if (d <= GEOFENCE_M) el.innerHTML = '📍 <span style="color:var(--ok)">At checkpoint · ' + d + "m</span> · ±" + pendingGeo.acc + "m";
-      else el.innerHTML = '📍 <span style="color:var(--crit)">' + d + "m from checkpoint</span> — move within " + GEOFENCE_M + "m";
+      if (d <= thr) el.innerHTML = '📍 <span style="color:var(--ok)">At checkpoint · ' + d + "m</span> · ±" + pendingGeo.acc + "m";
+      else el.innerHTML = '📍 <span style="color:var(--crit)">' + d + "m away</span> — move within " + thr + "m of the checkpoint";
     } else {
-      el.innerHTML = base + (scanCp && scanCp.lat == null ? ' · <span class="faint">checkpoint not calibrated</span>' : "");
+      el.innerHTML = '📍 Location locked · ±' + pendingGeo.acc + "m" + (scanCp && scanCp.lat == null ? ' · <span class="faint">checkpoint not calibrated</span>' : "");
     }
   }
   function requestGeo() {
@@ -12668,7 +12712,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     if (r.error) throw r.error; state.guards = r.data || [];
   }
   async function loadCheckpoints() {
-    var r = await SB.from("checkpoints").select("id,name,zone,code,lat,lng,created_at").order("created_at", { ascending: true });
+    var r = await SB.from("checkpoints").select("id,name,zone,code,lat,lng,geofence_m,max_accuracy_m,created_at").order("created_at", { ascending: true });
     if (r.error) throw r.error; state.checkpoints = r.data || [];
   }
   async function loadScans() {
@@ -12687,7 +12731,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   async function loadGuardCheckpoints() {
     var r = await SB.rpc("guard_checkpoints", { p_token: session.guard.token });
     if (r.error) throw r.error;
-    state.checkpoints = (r.data || []).map(function (c) { return { id: c.id, name: c.name, zone: c.zone, code: c.code, lat: c.lat, lng: c.lng }; });
+    state.checkpoints = (r.data || []).map(function (c) { return { id: c.id, name: c.name, zone: c.zone, code: c.code, lat: c.lat, lng: c.lng, geofence_m: c.geofence_m, max_accuracy_m: c.max_accuracy_m }; });
   }
 
   /* ---------- render router ---------- */
@@ -12808,8 +12852,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       '<div style="margin-bottom:12px"><input class="search" id="cpSearch" placeholder="Search by location name or code…" value="' + esc(cpSearch) + '"></div><div class="card scroll"><table class="tbl"><thead><tr><th>Checkpoint</th><th>Zone</th><th>Code</th><th>GPS lock</th><th>Scans</th><th style="text-align:right">Actions</th></tr></thead><tbody>' +
       (state.checkpoints.length ? state.checkpoints.map(function (c) {
         var hay = (c.name + " " + c.code + " " + (c.zone || "")).toLowerCase();
-        var gps = c.lat != null ? '<a class="pill ok" href="' + mapsLink(c) + '" target="_blank" rel="noopener" style="text-decoration:none"><span class="dot"></span>Set</a>' : '<span class="pill warn"><span class="dot"></span>Not set</span>';
-        return '<tr data-search="' + esc(hay) + '"' + (q && hay.indexOf(q) < 0 ? ' style="display:none"' : "") + "><td><b>" + esc(c.name) + '</b></td><td class="muted">' + esc(c.zone || "") + '</td><td><span class="pill mut">' + esc(c.code) + "</span></td><td>" + gps + '</td><td class="mono muted">' + state.scans.filter(function (s) { return s.cpId === c.id; }).length + '</td><td style="text-align:right;white-space:nowrap"><button class="btn" data-act="setgps" data-id="' + c.id + '" style="padding:7px 10px">Set GPS</button><button class="btn" data-act="qr" data-id="' + c.id + '" style="padding:7px 12px">QR</button><button class="btn btn-danger" data-act="delcp" data-id="' + c.id + '">Remove</button></td></tr>';
+        var gf = c.geofence_m || GEOFENCE_M;
+        var gps = c.lat != null ? '<a class="pill ok" href="' + mapsLink(c) + '" target="_blank" rel="noopener" style="text-decoration:none"><span class="dot"></span>Set</a> <span class="faint mono" style="font-size:11px">' + gf + 'm</span>' : '<span class="pill warn"><span class="dot"></span>Not set</span>';
+        return '<tr data-search="' + esc(hay) + '"' + (q && hay.indexOf(q) < 0 ? ' style="display:none"' : "") + "><td><b>" + esc(c.name) + '</b></td><td class="muted">' + esc(c.zone || "") + '</td><td><span class="pill mut">' + esc(c.code) + "</span></td><td>" + gps + '</td><td class="mono muted">' + state.scans.filter(function (s) { return s.cpId === c.id; }).length + '</td><td style="text-align:right;white-space:nowrap"><button class="btn" data-act="setgps" data-id="' + c.id + '" style="padding:7px 10px">Set GPS</button><button class="btn" data-act="editradius" data-id="' + c.id + '" style="padding:7px 10px">Radius</button><button class="btn" data-act="qr" data-id="' + c.id + '" style="padding:7px 12px">QR</button><button class="btn btn-danger" data-act="delcp" data-id="' + c.id + '">Remove</button></td></tr>';
       }).join("") : '<tr><td colspan="6"><div class="empty">No checkpoints yet — add your first.</div></td></tr>') + '</tbody></table></div><p class="faint" style="font-size:12.5px;margin-top:12px">Print each QR and stick it at the location. <b>Set GPS</b> while standing at the spot — that locks the official coordinates so a guard can only check in when physically within ' + GEOFENCE_M + 'm.</p>';
   }
   function emptyCard(html) { return '<div class="card"><div class="empty">' + html + "</div></div>"; }
@@ -12824,13 +12869,31 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   }
 
   /* ---------- guard ---------- */
+  function permRow(label, sub, okv, act) {
+    return '<div class="cp" style="border:1px solid var(--hair);border-radius:12px;padding:14px 15px;margin-bottom:11px"><span class="ico"' + (okv ? ' style="color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,var(--hair));background:var(--ok-soft)"' : "") + ">" + (okv ? ok() : pin()) + '</span><span class="grow"><span class="nm">' + label + '</span><br><span class="zn" style="text-transform:none;letter-spacing:0">' + sub + '</span></span><span class="rt">' + (okv ? '<span class="pill ok"><span class="dot"></span>On</span>' : '<button class="btn btn-primary" data-act="' + act + '" style="padding:8px 14px">Enable</button>') + "</span></div>";
+  }
+  function renderOnboarding() {
+    var g = session.guard;
+    app.innerHTML =
+      '<div style="max-width:460px;margin:4vh auto 0"><div class="card" style="padding:24px">' +
+      '<div class="ey">Before you patrol, ' + esc((g && g.name || "").split(" ")[0]) + '</div>' +
+      '<h2 style="font-size:22px;margin:6px 0 6px">Enable camera &amp; location</h2>' +
+      '<p class="muted" style="font-size:14px;margin:0 0 18px">Both are required so scans prove you were physically at each checkpoint. You can\'t start until both are on.</p>' +
+      permRow("Camera", "To scan the checkpoint QR codes (live only).", permCam, "permcam") +
+      permRow("Location (GPS)", "To verify you\'re at the checkpoint.", permGeo, "permgeo") +
+      (permCam && permGeo
+        ? '<button class="btn btn-primary" data-act="guardstart" style="width:100%;justify-content:center;padding:13px;margin-top:8px">Start patrol →</button>'
+        : '<p class="faint" style="font-size:12.5px;margin-top:8px">Tap <b>Enable</b> on each and choose <b>Allow</b>. If a button does nothing, the permission may be blocked — open the site’s ⓘ/lock menu and set Camera &amp; Location to Allow.</p>') +
+      '</div></div>';
+  }
   function renderGuard() {
+    if (!(permCam && permGeo)) { renderOnboarding(); return; }
     var g = session.guard;
     var doneIds = {}; session.round.forEach(function (s) { doneIds[s.cpId] = s; });
     var done = Object.keys(doneIds).length, total = state.checkpoints.length;
     var pct = total ? Math.round(done / total * 100) : 0;
     app.innerHTML =
-      '<div class="card" style="padding:16px 17px;margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px"><div><div class="ey">On patrol · ' + fmtD(now()) + '</div><h2 style="font-size:20px;margin-top:4px">' + esc(g.name) + '</h2></div><div style="text-align:right"><div class="mono" style="font-size:24px;font-weight:750">' + done + '<span class="faint" style="font-size:15px">/' + total + '</span></div><div style="font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;color:var(--muted);text-transform:uppercase">checkpoints</div></div></div><div class="prog" style="margin-top:12px"><i style="width:' + pct + '%"></i></div><div style="display:flex;justify-content:space-between;margin-top:8px"><span class="faint" style="font-size:12.5px">' + (total && done === total ? "Round complete — nice work." : "Scan each checkpoint on your round.") + '</span><button class="btn btn-ghost" data-act="newround" style="padding:4px 10px;font-size:12.5px">New round</button></div></div>' +
+      '<div class="card" style="padding:16px 17px;margin-bottom:16px"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px"><div><div class="ey">On patrol · ' + fmtD(now()) + (queuedCount ? ' · <span style="color:var(--warn)">' + queuedCount + ' saved offline</span>' : (navigator.onLine ? "" : ' · <span style="color:var(--warn)">offline</span>')) + '</div><h2 style="font-size:20px;margin-top:4px">' + esc(g.name) + '</h2></div><div style="text-align:right"><div class="mono" style="font-size:24px;font-weight:750">' + done + '<span class="faint" style="font-size:15px">/' + total + '</span></div><div style="font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;color:var(--muted);text-transform:uppercase">checkpoints</div></div></div><div class="prog" style="margin-top:12px"><i style="width:' + pct + '%"></i></div><div style="display:flex;justify-content:space-between;margin-top:8px"><span class="faint" style="font-size:12.5px">' + (total && done === total ? "Round complete — nice work." : "Scan each checkpoint on your round.") + '</span><button class="btn btn-ghost" data-act="newround" style="padding:4px 10px;font-size:12.5px">New round</button></div></div>' +
       '<div class="cplist">' + (state.checkpoints.length ? state.checkpoints.map(function (c) {
         var last = doneIds[c.id]; var isIssue = last && last.status === "issue";
         return '<div class="card cp ' + (last ? "done" : "") + '"><span class="ico"' + (isIssue ? ' style="color:var(--crit);border-color:color-mix(in srgb,var(--crit) 40%,var(--hair));background:var(--crit-soft)"' : "") + ">" + (last ? (isIssue ? warn() : ok()) : pin()) + '</span><span class="grow"><span class="nm">' + esc(c.name) + '</span><br><span class="zn">' + esc(c.zone || "") + '</span></span><span class="rt">' + (last ? '<span class="pill ' + (isIssue ? "crit" : "ok") + '"><span class="dot"></span>' + (isIssue ? "Issue" : "Done") + '</span><br><span class="t">' + fmtT(last.ts) + "</span>" : '<button class="btn btn-primary" data-act="scan" data-id="' + c.id + '">Scan</button>') + "</span></div>";
@@ -12862,6 +12925,20 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   function qrModal(cp) {
     var url = scanURL(cp.code), data = qrDataURL(url, 6, 4);
     modal('<div class="ey">Saved QR code</div><h3 style="margin-top:6px">' + esc(cp.name) + '</h3><div class="muted mono" style="font-size:13px;margin-top:2px">' + esc(cp.zone || "") + " · " + esc(cp.code) + '</div><div style="text-align:center;margin-top:16px"><span class="qrbox">' + (data ? '<img src="' + data + '" alt="QR code">' : "QR error") + '</span></div><p class="faint mono" style="font-size:10.5px;text-align:center;margin-top:10px;word-break:break-all">' + esc(url) + '</p><div class="big2"><button class="btn btn-primary" data-act="printqr" data-id="' + cp.id + '" style="justify-content:center;padding:12px">🖨 Print this QR</button><div style="display:flex;gap:10px"><a class="btn" href="' + data + '" download="QR-' + esc(cp.code) + '.gif" style="flex:1;justify-content:center">Download</a><button class="btn btn-ghost" data-act="close" style="flex:1;justify-content:center">Close</button></div></div>');
+  }
+  function radiusModal(cp) {
+    var curGf = cp.geofence_m || GEOFENCE_M, curAcc = cp.max_accuracy_m || 30;
+    var presets = [
+      ["Outdoor · strict", 15, 30], ["Outdoor · open", 30, 40],
+      ["Indoor / lobby", 40, 60], ["Basement / parking", 80, 120]
+    ];
+    modal('<div class="ey">Check-in radius</div><h3 style="margin-top:6px">' + esc(cp.name) + '</h3>' +
+      '<p class="muted" style="font-size:13.5px;margin:6px 0 4px">How close a guard must be, and how sharp their GPS must be, to check in here. Raise both for indoor or underground spots where GPS is weaker.</p>' +
+      '<label class="f" style="margin-top:12px">Quick presets</label><div class="chiprow" id="radiusPresets" style="justify-content:flex-start;flex-wrap:wrap">' +
+      presets.map(function (p) { return '<button class="chip" data-act="radiuspreset" data-gf="' + p[1] + '" data-acc="' + p[2] + '"' + (curGf === p[1] && curAcc === p[2] ? ' data-on="1"' : "") + '>' + p[0] + '<br><span class="faint" style="font-size:10.5px">' + p[1] + 'm · ±' + p[2] + 'm</span></button>'; }).join("") + '</div>' +
+      '<div class="row" style="margin-top:14px"><div><label class="f" for="rGf">Check-in radius (m)</label><input class="inp mono" id="rGf" inputmode="numeric" value="' + curGf + '"></div><div><label class="f" for="rAcc">Max GPS error (±m)</label><input class="inp mono" id="rAcc" inputmode="numeric" value="' + curAcc + '"></div></div>' +
+      '<div class="err" id="rerr"></div>' +
+      '<div class="big2"><button class="btn btn-primary" data-act="saveradius" data-id="' + cp.id + '" style="justify-content:center;padding:13px">Save radius</button><button class="btn btn-ghost" data-act="close" style="justify-content:center">Cancel</button></div>');
   }
   function printQR(cp) {
     var url = scanURL(cp.code), data = qrDataURL(url, 8, 4);
@@ -12897,7 +12974,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         camRAF = requestAnimationFrame(tick);
       };
       camRAF = requestAnimationFrame(tick);
-    }).catch(function () { st.innerHTML = 'Couldn\'t open the camera (permission needed).<br>Tap <b>Enter manually</b>.'; });
+    }).catch(function () { st.innerHTML = 'Couldn\'t open the camera. Open the site’s lock/ⓘ menu and set <b>Camera</b> to Allow, then try again.'; });
   }
 
   /* ---------- events ---------- */
@@ -12935,7 +13012,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         session.guard = { id: r.data[0].id, name: r.data[0].name, token: r.data[0].token };
         localStorage.setItem("sg_guard", JSON.stringify(session.guard));
         session.role = "guard"; session.roundStart = now(); session.round = [];
-        await loadGuardCheckpoints(); render(); requestGeo(); maybePendingScan();
+        await loadGuardCheckpoints();
+        await refreshPerms(); await refreshQueued();
+        render(); flushQueue(); if (permCam && permGeo) { requestGeo(); maybePendingScan(); }
       }); break;
       case "logout": withBusy(async function () {
         if (session.role === "manager") { try { await SB.auth.signOut(); } catch (e) { } }
@@ -12981,9 +13060,50 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
           });
         }, function () { flash("Couldn't get location — enable GPS & allow it.", true); }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 });
       })(); break;
+      case "editradius": (function () { var c = state.checkpoints.find(function (x) { return x.id === id; }); if (c) radiusModal(c); })(); break;
+      case "radiuspreset": (function () {
+        document.querySelectorAll("#radiusPresets .chip").forEach(function (ch) { ch.removeAttribute("data-on"); });
+        t.setAttribute("data-on", "1");
+        var gf = $("#rGf"), ma = $("#rAcc");
+        if (gf) gf.value = t.dataset.gf; if (ma) ma.value = t.dataset.acc;
+      })(); break;
+      case "saveradius": withBusy(async function () {
+        var gf = parseInt((($("#rGf") || {}).value || ""), 10);
+        var ma = parseInt((($("#rAcc") || {}).value || ""), 10);
+        if (!(gf > 0)) { var e1 = $("#rerr"); if (e1) e1.textContent = "Enter a check-in radius in metres."; return; }
+        if (!(ma > 0)) ma = Math.max(30, Math.round(gf * 2));
+        var r = await SB.from("checkpoints").update({ geofence_m: gf, max_accuracy_m: ma }).eq("id", id);
+        if (r.error) throw r.error;
+        closeModal(); await loadCheckpoints(); renderManager(); flash("Radius updated · " + gf + "m (GPS ±" + ma + "m)");
+      }); break;
       case "qr": (function () { var c = state.checkpoints.find(function (x) { return x.id === id; }); if (c) qrModal(c); })(); break;
       case "printqr": (function () { var c = state.checkpoints.find(function (x) { return x.id === id; }); if (c) printQR(c); })(); break;
       case "resolve": withBusy(async function () { var r = await SB.from("scans").update({ resolved: true, resolved_at: new Date().toISOString() }).eq("id", id); if (r.error) throw r.error; await loadScans(); renderManager(); flash("Marked resolved"); }); break;
+
+      case "permcam": withBusy(async function () {
+        var md = navigator.mediaDevices;
+        if (!md || !md.getUserMedia) { flash("This device/browser has no camera access.", true); return; }
+        try {
+          var s = await md.getUserMedia({ video: { facingMode: { ideal: "environment" } } });
+          s.getTracks().forEach(function (t) { try { t.stop(); } catch (e) { } });
+          permCam = true; renderOnboarding();
+        } catch (e) {
+          permCam = false; await refreshPerms(); renderOnboarding();
+          flash("Camera was blocked. Open the site’s lock/ⓘ menu and set Camera to Allow.", true);
+        }
+      }); break;
+      case "permgeo": (function () {
+        if (!navigator.geolocation) { flash("This device has no GPS.", true); return; }
+        flash("Getting location — tap Allow…");
+        navigator.geolocation.getCurrentPosition(function (p) {
+          pendingGeo = { lat: +p.coords.latitude.toFixed(6), lng: +p.coords.longitude.toFixed(6), acc: Math.round(p.coords.accuracy || 0) };
+          permGeo = true; renderOnboarding();
+        }, function () {
+          permGeo = false; renderOnboarding();
+          flash("Location was blocked. Open the site’s lock/ⓘ menu and set Location to Allow.", true);
+        }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 8000 });
+      })(); break;
+      case "guardstart": renderGuard(); requestGeo(); maybePendingScan(); break;
 
       case "scan": (function () { var cp = state.checkpoints.find(function (c) { return c.id === id; }); if (cp) cameraScan(cp); })(); break;
       case "reportissue": { var c = $("#choice"), f = $("#issueform"); if (c) c.hidden = true; if (f) { f.hidden = false; setTimeout(function () { var d = $("#desc"); if (d) d.focus(); }, 30); } break; }
@@ -13018,20 +13138,47 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     var g = null;
     try { g = await (geoPromise || Promise.resolve(pendingGeo)); } catch (e) { g = null; }
     if (!g) g = null;
-    var r = await SB.rpc("record_scan", {
-      p_token: session.guard.token, p_checkpoint_id: cp.id, p_status: status,
-      p_note: note || null, p_severity: severity, p_lat: g ? g.lat : null, p_lng: g ? g.lng : null, p_acc: g ? g.acc : null
-    });
-    if (r.error) throw r.error;
+    var scanTs = now();
+    var maxacc = cp.max_accuracy_m || 30;
+    // Client-side guards for immediate feedback on calibrated checkpoints (server stays authoritative)
+    if (cp.lat != null) {
+      if (!g) { flash("Location required — turn on GPS and tap Allow, then scan again.", true); closeModal(); return; }
+      if (g.acc <= 0 || g.acc > maxacc) { flash("Weak GPS signal (±" + g.acc + "m). Move to an open area and scan again.", true); closeModal(); return; }
+    }
+    var payload = {
+      id: "q" + scanTs + Math.random().toString(36).slice(2, 6),
+      token: session.guard.token, checkpoint_id: cp.id, cpName: cp.name,
+      status: status, note: note || null, severity: severity,
+      lat: g ? g.lat : null, lng: g ? g.lng : null, acc: g ? g.acc : null,
+      scanned_at: new Date(scanTs).toISOString()
+    };
+    // Offline (or no connection): queue and sync later
+    if (!navigator.onLine) {
+      await qPut(payload); await refreshQueued();
+      session.round.push({ cpId: cp.id, ts: scanTs, status: status, queued: true });
+      closeModal(); renderGuard(); flash("No signal — saved offline, will sync automatically.");
+      return;
+    }
+    var r;
+    try {
+      r = await SB.rpc("record_scan", { p_token: payload.token, p_checkpoint_id: payload.checkpoint_id, p_status: payload.status, p_note: payload.note, p_severity: payload.severity, p_lat: payload.lat, p_lng: payload.lng, p_acc: payload.acc, p_scanned_at: payload.scanned_at });
+    } catch (e) { r = { error: e }; }
+    if (r.error) {   // most likely a network drop mid-request → queue it
+      await qPut(payload); await refreshQueued();
+      session.round.push({ cpId: cp.id, ts: scanTs, status: status, queued: true });
+      closeModal(); renderGuard(); flash("Connection lost — saved offline, will sync.");
+      return;
+    }
     var res = r.data || {};
     if (!res.ok) {
-      if (res.reason === "geofence") flash("You must be physically at the checkpoint to scan (" + res.distance + "m away). This attempt was flagged.", true);
-      else if (res.reason === "no_gps") flash("Location required — turn on GPS and allow it, then scan again.", true);
+      if (res.reason === "geofence") flash("You must be physically at the checkpoint (" + res.distance + "m away). Attempt flagged.", true);
+      else if (res.reason === "accuracy") flash("GPS too weak/suspicious (±" + res.accuracy + "m). Move to an open area and retry. Attempt flagged.", true);
+      else if (res.reason === "no_gps") flash("Location required — enable GPS and try again.", true);
       else if (res.reason === "session") { flash("Session expired — sign in again.", true); localStorage.removeItem("sg_guard"); session = { role: null, guard: null, roundStart: now(), round: [] }; render(); }
       else flash("Could not record scan.", true);
       closeModal(); return;
     }
-    session.round.push({ cpId: cp.id, ts: now(), status: status });
+    session.round.push({ cpId: cp.id, ts: scanTs, status: status });
     closeModal(); renderGuard();
     flash(status === "issue" ? "Issue reported at " + cp.name : cp.name + " patrolled ✓" + (res.distance != null ? " (" + res.distance + "m)" : ""));
   }
@@ -13054,13 +13201,24 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       try {
         session.guard = JSON.parse(gs);
         await loadGuardCheckpoints();
-        session.role = "guard"; session.round = []; render(); requestGeo(); maybePendingScan(); return;
+        await refreshPerms(); await refreshQueued();
+        session.role = "guard"; session.round = []; render(); flushQueue();
+        if (permCam && permGeo) { requestGeo(); maybePendingScan(); }
+        return;
       } catch (e) { localStorage.removeItem("sg_guard"); }
     }
     renderLogin();
   }
+
+  window.addEventListener("online", function () {
+    if (session.role === "guard") { flash("Back online — syncing saved scans…"); }
+    flushQueue();
+  });
+  window.addEventListener("offline", function () {
+    if (session.role === "guard") { flash("You’re offline — scans will be saved and synced later."); renderGuard(); }
+  });
+
   init();
 })();
-
 </script>
 <script>if("serviceWorker" in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("sw.js").catch(function(){});});}</script>
