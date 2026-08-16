@@ -12754,7 +12754,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     if (r.error) throw r.error; state.guards = r.data || [];
   }
   async function loadCheckpoints() {
-    var r = await SB.from("checkpoints").select("id,name,zone,code,lat,lng,geofence_m,max_accuracy_m,created_at").order("created_at", { ascending: true });
+    // select("*") returns whatever columns exist — so a not-yet-migrated DB
+    // (missing max_accuracy_m) still loads instead of crashing the dashboard.
+    var r = await SB.from("checkpoints").select("*").order("created_at", { ascending: true });
     if (r.error) throw r.error; state.checkpoints = r.data || [];
   }
   async function loadScans() {
@@ -13284,11 +13286,21 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     try {
       r = await SB.rpc("record_scan", { p_token: payload.token, p_checkpoint_id: payload.checkpoint_id, p_status: payload.status, p_note: payload.note, p_severity: payload.severity, p_lat: payload.lat, p_lng: payload.lng, p_acc: payload.acc, p_scanned_at: payload.scanned_at });
     } catch (e) { r = { error: e }; }
-    if (r.error) {   // most likely a network drop mid-request → queue it
-      await qPut(payload); await refreshQueued();
-      session.round.push({ cpId: cp.id, ts: scanTs, status: status, queued: true });
-      closeModal(); renderGuard(); flash("Connection lost — saved offline, will sync.");
-      return;
+    if (r.error) {
+      // If the connection dropped mid-request, queue it to sync later.
+      if (!navigator.onLine) {
+        await qPut(payload); await refreshQueued();
+        session.round.push({ cpId: cp.id, ts: scanTs, status: status, queued: true });
+        closeModal(); renderGuard(); flash("Connection lost — saved offline, will sync.");
+        return;
+      }
+      // Still online but the server rejected the call (e.g. database update not applied yet).
+      // Don't silently queue forever — surface it clearly.
+      var msg = (r.error && r.error.message) || "server error";
+      if (/record_scan|function|schema|does not exist|p_scanned_at/i.test(msg))
+        flash("Server update pending — ask your manager to run the latest database update, then try again.", true);
+      else flash("Couldn't record scan: " + msg, true);
+      closeModal(); return;
     }
     var res = r.data || {};
     if (!res.ok) {
