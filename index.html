@@ -12634,7 +12634,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   var fmtD = function (ts) { return new Date(ts).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }); };
   var mapsLink = function (g) { return "https://maps.google.com/?q=" + g.lat + "," + g.lng; };
   var GEOFENCE_M = 15;
-  var APP_VERSION = "v15";
+  var APP_VERSION = "v16";
   var scanCp = null;
   function distM(lat1, lng1, lat2, lng2) {
     var R = 6371000, r = Math.PI / 180;
@@ -12796,7 +12796,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     if (!session.role) { whoEl.innerHTML = ""; return; }
     if (DEMO) {
       var other = session.role === "manager" ? '<button class="btn btn-ghost" data-act="demoguard">View as Guard</button>' : '<button class="btn btn-ghost" data-act="demomgr">View as Manager</button>';
-      whoEl.innerHTML = demoBadge() + '<span class="muted" style="font-size:12px">' + (session.role === "manager" ? "Manager" : "Guard") + '</span>' + other + '<button class="btn btn-ghost" data-act="stafflogin">Staff login</button>';
+      whoEl.innerHTML = demoBadge() + '<span class="muted" style="font-size:12px">' + (session.role === "manager" ? "Manager" : "Guard") + '</span>' + other;
       return;
     }
     if (session.role === "manager") whoEl.innerHTML = '<span class="role">Manager</span><span class="muted" style="font-size:12px">' + esc(state.me ? state.me.name : "") + '</span><button class="btn btn-ghost" data-act="logout">Log out</button>';
@@ -13208,8 +13208,6 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       }); break;
       case "demomgr": withBusy(function () { return enterDemoManager(); }); break;
       case "demoguard": withBusy(function () { return enterDemoGuard(); }); break;
-      case "stafflogin": location.href = location.pathname; break;
-      case "resetdemo": (function () { try { localStorage.removeItem("sg_demo_v1"); } catch (e) { } MOCK = makeMock(); flash("Demo reset"); renderDemoHome(); })(); break;
       case "tab": tab = t.dataset.tab; renderManager(); break;
 
       case "addguard": addGuardModal(); break;
@@ -13539,7 +13537,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       '<button class="rolecard" data-act="demomgr"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg></span><span><span class="t1">Explore as Manager</span><span class="t2">Live dashboard · patrols · issues · PDF report</span></span></button>' +
       '<button class="rolecard" data-act="demoguard"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></span><span><span class="t1">Explore as Guard</span><span class="t2">Scan checkpoints and log a patrol</span></span></button>' +
       '</div>' +
-      '<div class="demoNote">Sample hotel · Grand Vista Hotel · resets any time · ' + APP_VERSION + '<br><button class="btn btn-ghost" data-act="stafflogin" style="margin-top:10px">Staff login →</button> <button class="btn btn-ghost" data-act="resetdemo" style="margin-top:10px">Reset demo</button></div>' +
+      '<div class="demoNote">Sample hotel · Grand Vista Hotel · sample data only · ' + APP_VERSION + '</div>' +
       '</div>';
     whoEl.innerHTML = "";
   }
