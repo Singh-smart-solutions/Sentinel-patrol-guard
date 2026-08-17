@@ -12634,7 +12634,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   var fmtD = function (ts) { return new Date(ts).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }); };
   var mapsLink = function (g) { return "https://maps.google.com/?q=" + g.lat + "," + g.lng; };
   var GEOFENCE_M = 15;
-  var APP_VERSION = "v16";
+  var APP_VERSION = "v17";
   var scanCp = null;
   function distM(lat1, lng1, lat2, lng2) {
     var R = 6371000, r = Math.PI / 180;
@@ -13570,8 +13570,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   async function init() {
     var params;
     try { params = new URLSearchParams(location.search); } catch (e) { params = { get: function () { return null; } }; }
-    // "?demo" opens the public no-login demo; the plain URL is the real app.
-    if (params.get("demo") != null) { renderDemoHome(); return; }
+    // The clean URL is the public demo; the real app lives at /test (or ?test / ?staff).
+    var path = (location.pathname || "").replace(/\/+$/, "");
+    var real = /\/test$/.test(path) || params.get("test") != null || params.get("staff") != null;
+    if (!real) { renderDemoHome(); return; }
     var resumed = false;
     try { resumed = await realBoot(); } catch (e) { resumed = false; }
     if (resumed) return;
