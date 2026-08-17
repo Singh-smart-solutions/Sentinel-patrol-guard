@@ -12634,7 +12634,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   var fmtD = function (ts) { return new Date(ts).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }); };
   var mapsLink = function (g) { return "https://maps.google.com/?q=" + g.lat + "," + g.lng; };
   var GEOFENCE_M = 15;
-  var APP_VERSION = "v17";
+  var APP_VERSION = "v18";
   var scanCp = null;
   function distM(lat1, lng1, lat2, lng2) {
     var R = 6371000, r = Math.PI / 180;
@@ -12750,8 +12750,41 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     try { var h = await SB.from("hotels").select("name").eq("id", state.hotel_id).maybeSingle(); state.hotelName = (h.data && h.data.name) || "My Hotel"; } catch (e) { state.hotelName = "My Hotel"; }
     await reloadAll();
     session.role = "manager"; render();
+    if (!DEMO) startManagerLive();
   }
   async function reloadAll() { await Promise.all([loadGuards(), loadCheckpoints(), loadScans(), loadFlags()]); }
+
+  /* ---------- manager live updates (instant via Realtime, 15s poll fallback) ---------- */
+  var liveChan = null, livePoll = null, liveBusy = false;
+  async function refreshManagerLive() {
+    if (session.role !== "manager" || DEMO || liveBusy) return;
+    if (document.querySelector(".scrim")) return;                 // don't disrupt an open dialog
+    var ae = document.activeElement;
+    if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA")) return;  // don't disrupt typing
+    liveBusy = true;
+    try { await Promise.all([loadScans(), loadFlags(), loadGuards(), loadCheckpoints()]); renderManager(); } catch (e) { }
+    liveBusy = false;
+  }
+  function startManagerLive() {
+    stopManagerLive();
+    livePoll = setInterval(refreshManagerLive, 15000);
+    try {
+      SB.auth.getSession().then(function (s) {
+        var tok = s.data && s.data.session && s.data.session.access_token;
+        try { if (tok && SB.realtime && SB.realtime.setAuth) SB.realtime.setAuth(tok); } catch (e) { }
+        try {
+          liveChan = SB.channel("mgr-" + state.hotel_id)
+            .on("postgres_changes", { event: "*", schema: "public", table: "scans", filter: "hotel_id=eq." + state.hotel_id }, function () { refreshManagerLive(); })
+            .on("postgres_changes", { event: "*", schema: "public", table: "security_flags", filter: "hotel_id=eq." + state.hotel_id }, function () { refreshManagerLive(); })
+            .subscribe();
+        } catch (e) { }
+      });
+    } catch (e) { }
+  }
+  function stopManagerLive() {
+    if (livePoll) { clearInterval(livePoll); livePoll = null; }
+    if (liveChan) { try { SB.removeChannel(liveChan); } catch (e) { } liveChan = null; }
+  }
   async function loadFlags() {
     var r = await SB.from("security_flags").select("*").order("created_at", { ascending: false }).limit(200);
     if (r.error) { state.flags = []; return; } state.flags = r.data || [];
@@ -13201,6 +13234,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         render(); flushQueue(); if (permCam && permGeo) { requestGeo(); maybePendingScan(); }
       }); break;
       case "logout": withBusy(async function () {
+        stopManagerLive();
         if (DEMO) { renderDemoHome(); return; }
         if (session.role === "manager") { try { await SB.auth.signOut(); } catch (e) { } }
         localStorage.removeItem("sg_guard");
