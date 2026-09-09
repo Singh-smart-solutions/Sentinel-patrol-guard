@@ -12634,7 +12634,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   var fmtD = function (ts) { return new Date(ts).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }); };
   var mapsLink = function (g) { return "https://maps.google.com/?q=" + g.lat + "," + g.lng; };
   var GEOFENCE_M = 15;
-  var APP_VERSION = "v29";
+  var APP_VERSION = "v30";
   var scanCp = null;
   function distM(lat1, lng1, lat2, lng2) {
     var R = 6371000, r = Math.PI / 180;
@@ -12971,7 +12971,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     return '<div class="shead"><h2>Security flags</h2><span class="ey">' + state.flags.length + ' flagged</span></div><p class="faint" style="font-size:12.5px;margin:-4px 0 12px">Scans that failed GPS verification — a guard tried to check in while <b>not physically at the checkpoint</b>, or with location off.</p><div class="card scroll"><table class="tbl"><thead><tr><th>Time</th><th>Guard</th><th>Checkpoint</th><th>Reason</th><th>Distance</th><th>Where</th></tr></thead><tbody>' +
       state.flags.map(function (f) {
         var ts = Date.parse(f.created_at);
-        var reason = f.reason === "no_gps" ? '<span class="pill warn"><span class="dot"></span>No GPS</span>' : '<span class="pill crit"><span class="dot"></span>Out of range</span>';
+        var reason = f.reason === "no_gps" ? '<span class="pill warn"><span class="dot"></span>No GPS</span>' : f.reason === "accuracy" ? '<span class="pill warn"><span class="dot"></span>Weak GPS</span>' : '<span class="pill crit"><span class="dot"></span>Out of range</span>';
         return "<tr><td class=\"mono\">" + fmtT(ts) + '<br><span class="muted">' + fmtD(ts) + "</span></td><td>" + esc(f.guard_name || "—") + "</td><td>" + esc(f.checkpoint_name || "—") + "</td><td>" + reason + '</td><td class="mono">' + (f.distance_m != null ? f.distance_m + "m" : "—") + "</td><td>" + (f.lat != null ? '<a class="mono" href="' + mapsLink({ lat: f.lat, lng: f.lng }) + '" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">map</a>' : "—") + "</td></tr>";
       }).join("") + "</tbody></table></div>";
   }
