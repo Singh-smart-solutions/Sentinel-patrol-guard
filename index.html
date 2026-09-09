@@ -12634,7 +12634,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   var fmtD = function (ts) { return new Date(ts).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }); };
   var mapsLink = function (g) { return "https://maps.google.com/?q=" + g.lat + "," + g.lng; };
   var GEOFENCE_M = 15;
-  var APP_VERSION = "v28";
+  var APP_VERSION = "v29";
   var scanCp = null;
   function distM(lat1, lng1, lat2, lng2) {
     var R = 6371000, r = Math.PI / 180;
@@ -13643,12 +13643,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     try { g = await (geoPromise || Promise.resolve(pendingGeo)); } catch (e) { g = null; }
     if (!g) g = null;
     var scanTs = now();
-    var maxacc = cp.max_accuracy_m || 30;
-    // Client-side guards for immediate feedback on calibrated checkpoints (server stays authoritative)
-    if (cp.lat != null) {
-      if (!g) { flash("Location required — turn on GPS and tap Allow, then scan again.", true); closeModal(); return; }
-      if (g.acc <= 0 || g.acc > maxacc) { flash("Weak GPS signal (±" + g.acc + "m). Move to an open area and scan again.", true); closeModal(); return; }
-    }
+    // Calibrated checkpoints are verified on the SERVER: it records a security
+    // flag for a weak-GPS, no-GPS, or out-of-range attempt and returns the
+    // reason (shown to the guard below). We deliberately do NOT block here, so
+    // every failed attempt is captured as a flag the manager can see.
     var payload = {
       id: "q" + scanTs + Math.random().toString(36).slice(2, 6),
       token: session.guard.token, checkpoint_id: cp.id, cpName: cp.name,
