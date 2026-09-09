@@ -12634,7 +12634,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   var fmtD = function (ts) { return new Date(ts).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }); };
   var mapsLink = function (g) { return "https://maps.google.com/?q=" + g.lat + "," + g.lng; };
   var GEOFENCE_M = 15;
-  var APP_VERSION = "v22";
+  var APP_VERSION = "v23";
   var scanCp = null;
   function distM(lat1, lng1, lat2, lng2) {
     var R = 6371000, r = Math.PI / 180;
@@ -12936,7 +12936,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   function panelTeam() {
     return '<div class="shead"><h2>Security guards</h2><button class="btn btn-primary" data-act="addguard">+ Add guard</button></div><div class="card scroll"><table class="tbl"><thead><tr><th>Name</th><th>Phone</th><th>Code</th><th>Patrols</th><th></th></tr></thead><tbody>' +
       (state.guards.length ? state.guards.map(function (g) {
-        return "<tr><td><b>" + esc(g.name) + '</b></td><td class="mono muted">' + esc(g.phone || "—") + '</td><td><span class="pill mut">' + esc(g.code) + '</span></td><td class="mono muted">' + state.scans.filter(function (s) { return s.guardId === g.id; }).length + '</td><td style="text-align:right"><button class="btn btn-danger" data-act="delguard" data-id="' + g.id + '">Remove</button></td></tr>';
+        return "<tr><td><b>" + esc(g.name) + '</b></td><td class="mono muted">' + esc(g.phone || "—") + '</td><td><span class="pill mut">' + esc(g.code) + '</span></td><td class="mono muted">' + state.scans.filter(function (s) { return s.guardId === g.id; }).length + '</td><td style="text-align:right"><button class="btn btn-ghost" data-act="resetpin" data-id="' + g.id + '" style="margin-right:8px">Reset PIN</button><button class="btn btn-danger" data-act="delguard" data-id="' + g.id + '">Remove</button></td></tr>';
       }).join("") : '<tr><td colspan="5"><div class="empty">No guards yet — add your first.</div></td></tr>') + "</tbody></table></div><p class=\"faint\" style=\"font-size:12.5px;margin-top:12px\">Guards sign in with their <b>code</b> + <b>PIN</b>. Every scan is recorded under their name with time and GPS.</p>";
   }
   function panelPoints() {
@@ -13012,6 +13012,14 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   function addGuardModal() {
     modal('<div class="ey">New guard</div><h3 style="margin-top:6px">Add a security guard</h3><div style="margin-top:16px"><label class="f" for="gn">Full name</label><input class="inp" id="gn" placeholder="e.g. Daniel Mwangi"></div><div class="row" style="margin-top:12px"><div><label class="f" for="gp">Phone</label><input class="inp" id="gp" placeholder="+…"></div><div><label class="f" for="gcode">Login code</label><input class="inp mono" id="gcode" placeholder="e.g. DANIEL" style="text-transform:uppercase"></div></div><div style="margin-top:12px"><label class="f" for="gpn">PIN (6 digits)</label><input class="inp mono" id="gpn" inputmode="numeric" maxlength="6" placeholder="auto-generate if blank"></div><div class="big2"><button class="btn btn-primary" data-act="saveguard" style="justify-content:center;padding:13px">Add guard</button><button class="btn btn-ghost" data-act="close" style="justify-content:center">Cancel</button></div>');
     setTimeout(function () { $("#gn").focus(); }, 50);
+  }
+  function resetPinModal(g) {
+    modal('<div class="ey">Guard access</div><h3 style="margin-top:6px">Reset PIN — ' + esc(g.name) + '</h3>' +
+      '<p class="muted" style="font-size:13.5px;margin:6px 0 4px">Set a new 6-digit PIN for this guard. Their login code stays <span class="mono">' + esc(g.code) + '</span>. Share the new PIN with them.</p>' +
+      '<div style="margin-top:12px"><label class="f" for="npin">New PIN (6 digits)</label><input class="inp mono" id="npin" inputmode="numeric" maxlength="6" placeholder="auto-generate if blank" style="letter-spacing:.3em;font-size:18px"></div>' +
+      '<div class="err" id="pinerr"></div>' +
+      '<div class="big2"><button class="btn btn-primary" data-act="savepin" data-id="' + g.id + '" style="justify-content:center;padding:13px">Save new PIN</button><button class="btn btn-ghost" data-act="close" style="justify-content:center">Cancel</button></div>');
+    setTimeout(function () { var el = $("#npin"); if (el) el.focus(); }, 50);
   }
   function renameHotelModal() {
     modal('<div class="ey">Property</div><h3 style="margin-top:6px">Rename hotel</h3>' +
@@ -13280,6 +13288,15 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       case "tab": tab = t.dataset.tab; renderManager(); break;
 
       case "addguard": addGuardModal(); break;
+      case "resetpin": { var gg = (state.guards || []).filter(function (x) { return x.id === id; })[0]; if (gg) resetPinModal(gg); break; }
+      case "savepin": withBusy(async function () {
+        var pn = (($("#npin") || {}).value || "").trim();
+        if (pn && !/^\d{4,6}$/.test(pn)) { var e = $("#pinerr"); if (e) e.textContent = "PIN must be 4–6 digits."; return; }
+        if (!pn) pn = String(Math.floor(100000 + Math.random() * 900000));
+        var r = await SB.rpc("set_guard_pin", { p_guard_id: id, p_pin: pn });
+        if (r.error) { var e2 = $("#pinerr"); if (e2) e2.textContent = "Couldn't reset PIN: " + r.error.message; return; }
+        closeModal(); flash("New PIN for guard: " + pn + " — share it with them.");
+      }); break;
       case "saveguard": withBusy(async function () {
         var n = (($("#gn") || {}).value || "").trim(), p = (($("#gp") || {}).value || "").trim();
         var code = (($("#gcode") || {}).value || "").trim().toUpperCase().replace(/\s+/g, "");
@@ -13581,6 +13598,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
           return resolve({ data: { ok: true, id: g.id, name: g.name, token: g.session_token }, error: null });
         }
         if (fn === "create_guard") { var ng = { id: duid(), hotel_id: "demo-hotel", name: a.p_name, phone: a.p_phone || null, code: String(a.p_code).toUpperCase(), pin: String(a.p_pin), active: true, session_token: null, session_expires: null, created_at: new Date().toISOString() }; db.guards.push(ng); save(); return resolve({ data: ng, error: null }); }
+        if (fn === "set_guard_pin") { var gp = db.guards.find(function (x) { return x.id === a.p_guard_id; }); if (gp) { gp.pin = String(a.p_pin); save(); } return resolve({ data: null, error: null }); }
         if (fn === "guard_checkpoints") { return resolve({ data: db.checkpoints.slice(), error: null }); }
         if (fn === "record_scan") {
           var gd = db.guards.find(function (x) { return x.session_token === a.p_token; });
