@@ -12634,7 +12634,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   var fmtD = function (ts) { return new Date(ts).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }); };
   var mapsLink = function (g) { return "https://maps.google.com/?q=" + g.lat + "," + g.lng; };
   var GEOFENCE_M = 15;
-  var APP_VERSION = "v19";
+  var APP_VERSION = "v20";
   var scanCp = null;
   function distM(lat1, lng1, lat2, lng2) {
     var R = 6371000, r = Math.PI / 180;
@@ -12906,7 +12906,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       '</div>';
     var tabsArr = [["overview", "Overview"], ["reports", "Reports" + (openIssues ? " · " + openIssues : "")], ["flags", "Security flags" + (state.flags.length ? " · " + state.flags.length : "")], ["log", "Patrol log"], ["team", "Guards"], ["points", "Checkpoints"]];
     var tabs = '<div class="tabs">' + tabsArr.map(function (t) { return '<button class="tab ' + (tab === t[0] ? "active" : "") + '" data-act="tab" data-tab="' + t[0] + '">' + t[1] + "</button>"; }).join("") + "</div>";
-    var toolbar = '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin:2px 0 14px;flex-wrap:wrap"><span class="faint" style="font-size:12.5px">' + esc(state.hotelName) + ' · ' + fmtD(now()) + ' · ' + APP_VERSION + '</span><button class="btn btn-primary" data-act="eod" style="padding:9px 15px">📄 Generate Report (PDF)</button></div>';
+    var toolbar = '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin:2px 0 14px;flex-wrap:wrap"><span class="faint" style="font-size:12.5px">' + esc(state.hotelName) + ' <button class="btn btn-ghost" data-act="renamehotel" title="Rename hotel" style="padding:1px 7px;font-size:12px">✎</button> · ' + fmtD(now()) + ' · ' + APP_VERSION + '</span><button class="btn btn-primary" data-act="eod" style="padding:9px 15px">📄 Generate Report (PDF)</button></div>';
     var panel = "";
     if (tab === "overview") panel = panelOverview(today);
     else if (tab === "reports") panel = panelReports();
@@ -13028,6 +13028,14 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   function addGuardModal() {
     modal('<div class="ey">New guard</div><h3 style="margin-top:6px">Add a security guard</h3><div style="margin-top:16px"><label class="f" for="gn">Full name</label><input class="inp" id="gn" placeholder="e.g. Daniel Mwangi"></div><div class="row" style="margin-top:12px"><div><label class="f" for="gp">Phone</label><input class="inp" id="gp" placeholder="+…"></div><div><label class="f" for="gcode">Login code</label><input class="inp mono" id="gcode" placeholder="e.g. DANIEL" style="text-transform:uppercase"></div></div><div style="margin-top:12px"><label class="f" for="gpn">PIN (6 digits)</label><input class="inp mono" id="gpn" inputmode="numeric" maxlength="6" placeholder="auto-generate if blank"></div><div class="big2"><button class="btn btn-primary" data-act="saveguard" style="justify-content:center;padding:13px">Add guard</button><button class="btn btn-ghost" data-act="close" style="justify-content:center">Cancel</button></div>');
     setTimeout(function () { $("#gn").focus(); }, 50);
+  }
+  function renameHotelModal() {
+    modal('<div class="ey">Property</div><h3 style="margin-top:6px">Rename hotel</h3>' +
+      '<p class="muted" style="font-size:13.5px;margin:6px 0 4px">This name shows on your dashboard and on every PDF report.</p>' +
+      '<div style="margin-top:12px"><label class="f" for="hn">Hotel name</label><input class="inp" id="hn" maxlength="80" value="' + esc(state.hotelName || "") + '" placeholder="e.g. Grand Vista Hotel"></div>' +
+      '<div class="err" id="hnerr"></div>' +
+      '<div class="big2"><button class="btn btn-primary" data-act="savehotelname" style="justify-content:center;padding:13px">Save name</button><button class="btn btn-ghost" data-act="close" style="justify-content:center">Cancel</button></div>');
+    setTimeout(function () { var el = $("#hn"); if (el) { el.focus(); el.select(); } }, 50);
   }
   function addCpModal() {
     modal('<div class="ey">New checkpoint</div><h3 style="margin-top:6px">Add a checkpoint</h3><div style="margin-top:16px"><label class="f" for="cn">Name</label><input class="inp" id="cn" placeholder="e.g. Spa Entrance"></div><div class="row" style="margin-top:12px"><div><label class="f" for="cz">Zone</label><input class="inp" id="cz" placeholder="e.g. Wellness"></div><div><label class="f" for="cc">Code (optional)</label><input class="inp mono" id="cc" placeholder="auto"></div></div><div class="big2"><button class="btn btn-primary" data-act="savecp" style="justify-content:center;padding:13px">Add &amp; make QR</button><button class="btn btn-ghost" data-act="close" style="justify-content:center">Cancel</button></div>');
@@ -13275,6 +13283,16 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       }); break;
       case "delguard": (function () { var g = state.guards.find(function (x) { return x.id === id; }); if (!g) return; if (!confirm("Remove " + g.name + "? Past patrol records stay in the log.")) return; withBusy(async function () { var r = await SB.from("guards").delete().eq("id", id); if (r.error) throw r.error; await loadGuards(); renderManager(); flash(g.name + " removed"); }); })(); break;
 
+      case "renamehotel": renameHotelModal(); break;
+      case "savehotelname": withBusy(async function () {
+        var nm = ($("#hn") && $("#hn").value || "").trim();
+        if (nm.length < 2) { var e = $("#hnerr"); if (e) e.textContent = "Please enter a hotel name."; return; }
+        if (DEMO) { state.hotelName = nm; closeModal(); renderManager(); flash("Hotel renamed"); return; }
+        var r = await SB.from("hotels").update({ name: nm }).eq("id", state.hotel_id).select("id");
+        if (r.error) throw r.error;
+        if (!r.data || !r.data.length) { var e2 = $("#hnerr"); if (e2) e2.textContent = "Couldn't save — please try again."; return; }
+        state.hotelName = nm; closeModal(); renderManager(); flash("Hotel renamed");
+      }); break;
       case "addcp": addCpModal(); break;
       case "savecp": withBusy(async function () {
         var n = (($("#cn") || {}).value || "").trim(), z = (($("#cz") || {}).value || "").trim();
