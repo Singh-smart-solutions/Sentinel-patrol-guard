@@ -12634,7 +12634,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   var fmtD = function (ts) { return new Date(ts).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }); };
   var mapsLink = function (g) { return "https://maps.google.com/?q=" + g.lat + "," + g.lng; };
   var GEOFENCE_M = 15;
-  var APP_VERSION = "v27";
+  var APP_VERSION = "v28";
   var scanCp = null;
   function distM(lat1, lng1, lat2, lng2) {
     var R = 6371000, r = Math.PI / 180;
@@ -12935,7 +12935,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         var ageBadge = s.resolved ? '<span class="pill mut">Resolved</span>' : '<span class="pill ' + (daysSince(s.ts) >= 2 ? "warn" : "mut") + '">' + openDaysLabel(s.ts) + '</span>';
         var fupHtml = fups.length ? '<div style="margin-top:10px;border-top:1px solid var(--hair);padding-top:8px"><div class="ey" style="margin-bottom:6px">Follow-ups · ' + fups.length + '</div>' +
           fups.map(function (u) { return '<div style="margin-bottom:8px"><div class="mono" style="font-size:11.5px;color:var(--faint)">' + fmtD(u.ts) + " " + fmtT(u.ts) + " · " + esc(u.by || "Manager") + '</div>' + (u.note ? '<div style="font-size:13.5px">' + esc(u.note) + '</div>' : "") + (u.photo ? '<img data-act="viewphoto" src="' + esc(u.photo) + '" alt="" style="max-height:90px;border-radius:8px;border:1px solid var(--hair);margin-top:4px;cursor:zoom-in">' : "") + '</div>'; }).join("") + '</div>' : "";
-        var btns = s.resolved ? "" : '<div style="display:flex;flex-direction:column;gap:6px;flex:none"><button class="btn btn-ghost" data-act="followup" data-id="' + s.id + '" style="padding:7px 11px;font-size:13px">＋ Follow up</button><button class="btn btn-ghost" data-act="resolve" data-id="' + s.id + '" style="padding:7px 11px;font-size:13px">Mark resolved</button></div>';
+        var btns = s.resolved ? "" : '<button class="btn btn-ghost" data-act="resolve" data-id="' + s.id + '" style="flex:none;padding:7px 11px;font-size:13px">Mark resolved</button>';
         return '<div class="card rep ' + (s.resolved ? "resolved" : "") + '"><span class="ph" style="display:grid;place-items:center;color:var(--faint)">' + warn() + '</span><div class="g"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="pill ' + sevCls(s.severity) + '"><span class="dot"></span>' + esc(s.severity || "Issue") + '</span><b>' + esc(s.cpName) + "</b>" + ageBadge + '</div><p style="margin:7px 0 8px;font-size:14.5px">' + esc(s.note || "") + '</p>' + (s.photo ? '<img data-act="viewphoto" src="' + esc(s.photo) + '" alt="issue photo" style="max-height:150px;max-width:100%;border-radius:10px;border:1px solid var(--hair);cursor:zoom-in;margin-bottom:8px">' : "") + '<div class="mono" style="font-size:12px;color:var(--faint)">' + esc(s.guardName) + " · reported " + fmtD(s.ts) + " " + fmtT(s.ts) + (s.geo ? ' · <a href="' + mapsLink(s.geo) + '" target="_blank" rel="noopener" style="color:var(--ok);text-decoration:none">📍 GPS ±' + s.geo.acc + "m</a>" : "") + "</div>" + fupHtml + "</div>" + btns + "</div>";
       }).join("") + "</div>";
   }
@@ -13032,17 +13032,6 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       '<div class="err" id="gerr"></div>' +
       '<div class="big2"><button class="btn btn-primary" data-act="saveguard" style="justify-content:center;padding:13px">Add guard</button><button class="btn btn-ghost" data-act="close" style="justify-content:center">Cancel</button></div>');
     setTimeout(function () { $("#gn").focus(); }, 50);
-  }
-  function followUpModal(s) {
-    pendingPhoto = null;
-    var m = modal('<div class="ey">Follow-up</div><h3 style="margin-top:6px">Update — ' + esc(s.cpName) + '</h3>' +
-      '<p class="muted" style="font-size:13.5px;margin:6px 0 4px">The issue is still ongoing. This update is added to the report with today’s date.</p>' +
-      '<div style="margin-top:10px"><label class="f" for="fupnote">Update</label><textarea class="inp" id="fupnote" rows="3" placeholder="e.g. still not fixed — contractor called"></textarea></div>' +
-      '<div style="margin-top:10px"><button class="btn btn-ghost" data-act="addphoto" style="justify-content:center;width:100%">📷 Add photo</button><input type="file" id="photoInput" accept="image/*" capture="environment" hidden><div id="photoPrev"></div></div>' +
-      '<div class="err" id="ferr"></div>' +
-      '<div class="big2"><button class="btn btn-primary" data-act="savefollowup" data-id="' + s.id + '" style="justify-content:center;padding:13px">Save follow-up</button><button class="btn btn-ghost" data-act="close" style="justify-content:center">Cancel</button></div>');
-    var pin = $("#photoInput", m); if (pin) pin.addEventListener("change", onPhotoPick);
-    setTimeout(function () { var n = $("#fupnote", m); if (n) n.focus(); }, 50);
   }
   function resetPinModal(g) {
     modal('<div class="ey">Guard access</div><h3 style="margin-top:6px">Reset PIN — ' + esc(g.name) + '</h3>' +
@@ -13527,14 +13516,6 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       case "qr": (function () { var c = state.checkpoints.find(function (x) { return x.id === id; }); if (c) qrModal(c); })(); break;
       case "printqr": (function () { var c = state.checkpoints.find(function (x) { return x.id === id; }); if (c) printQR(c); })(); break;
       case "resolve": withBusy(async function () { var r = await SB.from("scans").update({ resolved: true, resolved_at: new Date().toISOString() }).eq("id", id); if (r.error) throw r.error; await loadScans(); renderManager(); flash("Marked resolved"); }); break;
-      case "followup": { var iss = (state.scans || []).filter(function (x) { return x.id === id; })[0]; if (iss) followUpModal(iss); break; }
-      case "savefollowup": withBusy(async function () {
-        var note = (($("#fupnote") || {}).value || "").trim();
-        if (!note && !pendingPhoto) { var fe = $("#ferr"); if (fe) fe.textContent = "Add a note or a photo."; return; }
-        var r = await SB.from("issue_updates").insert({ hotel_id: state.hotel_id, scan_id: id, note: note || null, photo_path: pendingPhoto || null }).select("id");
-        if (r.error) { var fe2 = $("#ferr"); if (fe2) fe2.textContent = "Couldn't save: " + r.error.message; return; }
-        pendingPhoto = null; closeModal(); await loadFollowups(); renderManager(); flash("Follow-up added");
-      }); break;
       case "eod": reportModal(); break;
       case "rppreset": (function () {
         var f = $("#rpFrom"), tt = $("#rpTo");
@@ -13584,9 +13565,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       case "sev": pendingSev = t.dataset.sev; document.querySelectorAll("#sevrow .chip").forEach(function (ch) { if (ch.dataset.sev === pendingSev) ch.setAttribute("data-on", "1"); else ch.removeAttribute("data-on"); }); break;
       case "viewphoto": { var vsrc = t.getAttribute("src"); if (vsrc) modal('<div class="ey">Issue photo</div><div style="margin-top:10px;text-align:center"><img src="' + vsrc + '" style="max-width:100%;max-height:74vh;border-radius:10px"></div><div class="big2"><button class="btn btn-ghost" data-act="close" style="justify-content:center">Close</button></div>'); break; }
       case "guardfollowup": withBusy(async function () {
-        var r = await SB.rpc("guard_add_followup", { p_token: session.guard.token, p_scan_id: id, p_note: "Still not fixed — found again on patrol", p_photo: null });
-        if (r.error || !(r.data && r.data.ok)) { flash("Couldn't save follow-up — try again.", true); return; }
-        closeModal(); flash("Thanks — logged that the issue is still open.");
+        var noteEl = document.getElementById("fup_" + id);
+        var note = (noteEl && noteEl.value.trim()) ? noteEl.value.trim() : "Still not fixed — found again on patrol";
+        var r = await SB.rpc("guard_add_followup", { p_token: session.guard.token, p_scan_id: id, p_note: note, p_photo: null });
+        if (r.error || !(r.data && r.data.ok)) { flash("Couldn't save update — try again.", true); return; }
+        closeModal(); flash("Update saved — thanks.");
       }); break;
       case "addphoto": { var pf = $("#photoInput"); if (pf) pf.click(); break; }
       case "rmphoto": { pendingPhoto = null; var pf2 = $("#photoInput"); if (pf2) pf2.value = ""; renderPhotoPrev(); break; }
@@ -13623,8 +13606,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       box.innerHTML = '<div style="margin-top:12px;padding:11px 12px;border-radius:10px;background:color-mix(in srgb,var(--warn) 13%,transparent);border:1px solid color-mix(in srgb,var(--warn) 40%,var(--hair))">' +
         '<div class="ey" style="color:var(--warn)">Open issue at this checkpoint</div>' +
         issues.map(function (i) {
-          return '<div style="margin-top:8px"><div style="font-size:13.5px">' + esc(i.note || "Issue reported") + '</div><div class="mono" style="font-size:11px;color:var(--faint)">reported ' + fmtD(Date.parse(i.scanned_at)) + '</div><button class="btn btn-ghost" data-act="guardfollowup" data-id="' + i.id + '" style="margin-top:6px;padding:6px 11px;font-size:12.5px;color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,var(--hair))">⚠ Still not fixed</button></div>';
-        }).join("") + '<p class="faint" style="font-size:11px;margin:9px 0 0">Tap if the same problem is still here — no photo needed.</p></div>';
+          return '<div style="margin-top:8px"><div style="font-size:13.5px">' + esc(i.note || "Issue reported") + '</div><div class="mono" style="font-size:11px;color:var(--faint)">reported ' + fmtD(Date.parse(i.scanned_at)) + '</div>' +
+            '<textarea class="inp" id="fup_' + i.id + '" rows="2" placeholder="What did you do? e.g. informed engineering to fix (optional)" style="margin-top:7px;font-size:13px"></textarea>' +
+            '<button class="btn btn-ghost" data-act="guardfollowup" data-id="' + i.id + '" style="margin-top:6px;padding:6px 11px;font-size:12.5px;color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,var(--hair))">⚠ Still not fixed — save update</button></div>';
+        }).join("") + '<p class="faint" style="font-size:11px;margin:9px 0 0">Add a note about what you did, or just save to log that it is still not fixed.</p></div>';
     } catch (e) { }
   }
   function renderPhotoPrev() {
