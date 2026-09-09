@@ -12634,7 +12634,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   var fmtD = function (ts) { return new Date(ts).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }); };
   var mapsLink = function (g) { return "https://maps.google.com/?q=" + g.lat + "," + g.lng; };
   var GEOFENCE_M = 15;
-  var APP_VERSION = "v18";
+  var APP_VERSION = "v19";
   var scanCp = null;
   function distM(lat1, lng1, lat2, lng2) {
     var R = 6371000, r = Math.PI / 180;
@@ -12686,20 +12686,33 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   async function qAll() { var db = await openIDB(); if (!db) return []; return new Promise(function (r) { var t = db.transaction("queue", "readonly"); var rq = t.objectStore("queue").getAll(); rq.onsuccess = function () { r(rq.result || []); }; rq.onerror = function () { r([]); }; }); }
   async function qDel(id) { var db = await openIDB(); if (!db) return; return new Promise(function (r) { var t = db.transaction("queue", "readwrite"); t.objectStore("queue").delete(id); t.oncomplete = function () { r(); }; t.onerror = function () { r(); }; }); }
   async function refreshQueued() { queuedCount = (await qAll()).length; }
+  var QUEUE_MAX_TRIES = 6;   // retry a queued scan across several syncs before giving up
   async function flushQueue() {
     if (flushing || !navigator.onLine) return; flushing = true;
+    var synced = 0, failed = 0;
     try {
       var items = await qAll();
       for (var i = 0; i < items.length; i++) {
         var it = items[i];
         try {
           var r = await SB.rpc("record_scan", { p_token: it.token, p_checkpoint_id: it.checkpoint_id, p_status: it.status, p_note: it.note, p_severity: it.severity, p_lat: it.lat, p_lng: it.lng, p_acc: it.acc, p_scanned_at: it.scanned_at });
-          if (r.error) { if (!navigator.onLine) break; await qDel(it.id); }   // drop non-network failures so it can't loop forever
-          else { await qDel(it.id); }
+          if (r.error) {
+            if (!navigator.onLine) break;                 // connection dropped mid-sync — stop, keep everything, retry later
+            // Server rejected it. Keep retrying across syncs; only give up after
+            // several tries, and NEVER drop silently — surface it to the guard.
+            it.tries = (it.tries || 0) + 1;
+            it.lastError = (r.error && r.error.message) || "server error";
+            if (it.tries >= QUEUE_MAX_TRIES) { await qDel(it.id); failed++; }
+            else { await qPut(it); }                      // save the incremented try-count, retry next time
+          } else {
+            await qDel(it.id); synced++;
+          }
         } catch (e) { if (!navigator.onLine) break; }
       }
     } finally { flushing = false; }
     await refreshQueued();
+    if (synced) flash(synced + " offline " + (synced === 1 ? "scan" : "scans") + " synced.");
+    if (failed) flash(failed + " offline " + (failed === 1 ? "scan" : "scans") + " could not be synced — tell your manager.", true);
     if (session.role === "guard") renderGuard();
     else if (session.role === "manager") { try { await loadScans(); await loadFlags(); renderManager(); } catch (e) { } }
   }
@@ -12800,15 +12813,17 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     if (r.error) throw r.error; state.checkpoints = r.data || [];
   }
   async function loadScans() {
-    var r = await SB.from("scans").select("id,checkpoint_id,guard_id,status,note,severity,lat,lng,gps_accuracy,resolved,resolved_at,created_at,checkpoints(name),guards(name)").order("created_at", { ascending: false }).limit(500);
+    // select("*") tolerates not-yet-migrated columns; order by the real scan
+    // time (scanned_at) so offline scans show when they happened, not when synced.
+    var r = await SB.from("scans").select("*,checkpoints(name),guards(name)").order("scanned_at", { ascending: false }).limit(500);
     if (r.error) throw r.error;
     state.scans = (r.data || []).map(function (s) {
       return {
-        id: s.id, cpId: s.checkpoint_id, cpName: s.checkpoints ? s.checkpoints.name : "—",
-        guardId: s.guard_id, guardName: s.guards ? s.guards.name : "—",
+        id: s.id, cpId: s.checkpoint_id, cpName: s.checkpoints ? s.checkpoints.name : (s.cp_name || "—"),
+        guardId: s.guard_id, guardName: s.guards ? s.guards.name : (s.guard_name || "—"),
         status: s.status, note: s.note, severity: s.severity,
         geo: s.lat != null ? { lat: s.lat, lng: s.lng, acc: s.gps_accuracy } : null,
-        resolved: s.resolved, ts: Date.parse(s.created_at)
+        resolved: s.resolved, ts: Date.parse(s.scanned_at || s.created_at)
       };
     });
   }
@@ -13237,6 +13252,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         stopManagerLive();
         if (DEMO) { renderDemoHome(); return; }
         if (session.role === "manager") { try { await SB.auth.signOut(); } catch (e) { } }
+        // Revoke the guard's server session so the 12h token can't be reused after "End shift".
+        else if (session.guard && session.guard.token) { try { await SB.rpc("guard_logout", { p_token: session.guard.token }); } catch (e) { } }
         localStorage.removeItem("sg_guard");
         session = { role: null, guard: null, roundStart: now(), round: [] }; loginMode = null; render();
       }); break;
@@ -13627,9 +13644,24 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 </script>
 <script>
 if("serviceWorker" in navigator){
-  var _swRefreshing=false, _hadController=!!navigator.serviceWorker.controller;
+  var _swRefreshing=false, _hadController=!!navigator.serviceWorker.controller, _swPending=false;
+  // Don't reload out from under someone: hold the update while a dialog is open
+  // (e.g. a guard filling an incident report), an input is focused, or a save is
+  // in flight. Reload as soon as it's safe.
+  function _swSafeToReload(){
+    if(document.querySelector(".scrim")) return false;        // a modal/report is open
+    if(document.body && document.body.classList.contains("printing-eod")) return false; // a report is being generated
+    var a=document.activeElement;
+    if(a && (a.tagName==="INPUT"||a.tagName==="TEXTAREA"||a.isContentEditable)) return false;
+    return true;
+  }
+  function _swDoReload(){
+    if(_swRefreshing) return;
+    if(_swSafeToReload()){ _swRefreshing=true; window.location.reload(); }
+    else if(!_swPending){ _swPending=true; setInterval(function(){ if(_swSafeToReload()){ _swRefreshing=true; window.location.reload(); } }, 3000); }
+  }
   navigator.serviceWorker.addEventListener("controllerchange",function(){
-    if(_swRefreshing||!_hadController)return; _swRefreshing=true; window.location.reload();
+    if(_swRefreshing||!_hadController)return; _swDoReload();
   });
   window.addEventListener("load",function(){
     navigator.serviceWorker.register("sw.js").then(function(reg){
