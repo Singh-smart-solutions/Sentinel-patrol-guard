@@ -12634,7 +12634,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   var fmtD = function (ts) { return new Date(ts).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }); };
   var mapsLink = function (g) { return "https://maps.google.com/?q=" + g.lat + "," + g.lng; };
   var GEOFENCE_M = 15;
-  var APP_VERSION = "v30";
+  var APP_VERSION = "v31";
   var scanCp = null;
   function distM(lat1, lng1, lat2, lng2) {
     var R = 6371000, r = Math.PI / 180;
@@ -12898,7 +12898,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       '</div>';
     var tabsArr = [["overview", "Overview"], ["reports", "Reports" + (openIssues ? " · " + openIssues : "")], ["flags", "Security flags" + (state.flags.length ? " · " + state.flags.length : "")], ["log", "Patrol log"], ["team", "Guards"], ["points", "Checkpoints"]];
     var tabs = '<div class="tabs">' + tabsArr.map(function (t) { return '<button class="tab ' + (tab === t[0] ? "active" : "") + '" data-act="tab" data-tab="' + t[0] + '">' + t[1] + "</button>"; }).join("") + "</div>";
-    var toolbar = '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin:2px 0 14px;flex-wrap:wrap"><span class="faint" style="font-size:12.5px;display:inline-flex;align-items:center;gap:8px">' + (state.hotelLogo ? '<img src="' + esc(state.hotelLogo) + '" alt="" style="height:22px;max-width:80px;object-fit:contain;vertical-align:middle">' : '') + '<span>' + esc(state.hotelName) + ' <button class="btn btn-ghost" data-act="renamehotel" title="Rename hotel" style="padding:1px 7px;font-size:12px">✎</button> · ' + fmtD(now()) + ' · ' + APP_VERSION + '</span></span><button class="btn btn-primary" data-act="eod" style="padding:9px 15px">📄 Generate Report (PDF)</button></div>';
+    var toolbar = '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin:2px 0 14px;flex-wrap:wrap"><span class="faint" style="font-size:12.5px;display:inline-flex;align-items:center;gap:8px">' + (state.hotelLogo ? '<img src="' + esc(state.hotelLogo) + '" alt="" style="height:22px;max-width:80px;object-fit:contain;vertical-align:middle">' : '') + '<span>' + esc(state.hotelName) + ' · ' + fmtD(now()) + ' · ' + APP_VERSION + '</span></span><button class="btn btn-primary" data-act="eod" style="padding:9px 15px">📄 Generate Report (PDF)</button></div>';
     var panel = "";
     if (tab === "overview") panel = panelOverview(today);
     else if (tab === "reports") panel = panelReports();
@@ -13515,7 +13515,13 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       }); break;
       case "qr": (function () { var c = state.checkpoints.find(function (x) { return x.id === id; }); if (c) qrModal(c); })(); break;
       case "printqr": (function () { var c = state.checkpoints.find(function (x) { return x.id === id; }); if (c) printQR(c); })(); break;
-      case "resolve": withBusy(async function () { var r = await SB.from("scans").update({ resolved: true, resolved_at: new Date().toISOString() }).eq("id", id); if (r.error) throw r.error; await loadScans(); renderManager(); flash("Marked resolved"); }); break;
+      case "resolve": withBusy(async function () {
+        var sc = (state.scans || []).filter(function (x) { return x.id === id; })[0];
+        if (sc) { sc.resolved = true; renderManager(); }   // instant, optimistic
+        var r = await SB.from("scans").update({ resolved: true, resolved_at: new Date().toISOString() }).eq("id", id).select("id");
+        if (r.error || !r.data || !r.data.length) { if (sc) { sc.resolved = false; renderManager(); } flash("Couldn't mark resolved — please try again.", true); return; }
+        flash("Marked resolved");
+      }); break;
       case "eod": reportModal(); break;
       case "rppreset": (function () {
         var f = $("#rpFrom"), tt = $("#rpTo");
