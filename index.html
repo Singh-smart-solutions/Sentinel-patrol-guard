@@ -12634,7 +12634,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   var fmtD = function (ts) { return new Date(ts).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }); };
   var mapsLink = function (g) { return "https://maps.google.com/?q=" + g.lat + "," + g.lng; };
   var GEOFENCE_M = 15;
-  var APP_VERSION = "v21";
+  var APP_VERSION = "v22";
   var scanCp = null;
   function distM(lat1, lng1, lat2, lng2) {
     var R = 6371000, r = Math.PI / 180;
@@ -12853,40 +12853,24 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 
   /* ---------- login ---------- */
   function renderLogin() {
-    if (loginMode === "manager") {
-      app.innerHTML =
-        '<div class="login-wrap"><button class="back" data-act="loginhome">← Back</button>' +
-        '<div class="card" style="padding:26px;text-align:left">' +
-        '<div class="ey">Security manager</div><h2 style="font-size:22px;margin:6px 0 4px">Sign in</h2>' +
-        '<p class="muted" style="font-size:14px;margin:0 0 16px">Managers use email &amp; password.</p>' +
-        '<label class="f" for="em">Email</label><input class="inp" id="em" type="email" autocomplete="username" placeholder="you@hotel.com">' +
-        '<label class="f" for="pw" style="margin-top:12px">Password</label><input class="inp" id="pw" type="password" autocomplete="current-password" placeholder="••••••••">' +
-        '<div class="err">' + esc(loginErr) + '</div>' +
-        '<button class="btn btn-primary" data-act="mgrsignin" style="width:100%;justify-content:center;margin-top:8px">Sign in</button>' +
-        '<p class="demoNote" style="margin-top:14px">Authorized managers only. Contact your administrator for access.</p>' +
-        '</div></div>';
-    } else if (loginMode === "guard") {
-      app.innerHTML =
-        '<div class="login-wrap"><button class="back" data-act="loginhome">← Back</button>' +
-        '<div class="card" style="padding:26px;text-align:left">' +
-        '<div class="ey">Guard sign-in</div><h2 style="font-size:22px;margin:6px 0 4px">Enter your code &amp; PIN</h2>' +
-        '<p class="muted" style="font-size:14px;margin:0 0 16px">Your patrol is recorded under your name, with date, time and location.</p>' +
-        '<label class="f" for="gc">Guard code</label><input class="inp mono" id="gc" placeholder="e.g. RAJESH" style="text-transform:uppercase">' +
-        '<label class="f" for="gpin" style="margin-top:12px">PIN</label><input class="inp mono" id="gpin" inputmode="numeric" maxlength="6" placeholder="••••" style="letter-spacing:.4em;font-size:18px">' +
-        '<div class="err">' + esc(loginErr) + '</div>' +
-        '<button class="btn btn-primary" data-act="guardlogin" style="width:100%;justify-content:center;margin-top:8px">Start patrol</button>' +
-        '</div></div>';
-    } else {
-      app.innerHTML =
-        '<div class="login-wrap">' +
-        '<div class="brand" style="justify-content:center;margin-bottom:4px"><span class="logo" style="width:40px;height:40px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg></span></div>' +
-        '<h1 style="font-size:26px;font-weight:750;letter-spacing:-.02em">Sentinel Guard</h1>' +
-        '<p class="lead">Live security patrol tracking — every scan is GPS-verified and shared with your team instantly.</p>' +
-        '<div class="rolecards">' +
-        '<button class="rolecard" data-act="mode" data-mode="manager"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg></span><span><span class="t1">Security Manager</span><span class="t2">Dashboard · manage guards · see every patrol</span></span></button>' +
-        '<button class="rolecard" data-act="mode" data-mode="guard"><span class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></span><span><span class="t1">Guard sign-in</span><span class="t2">Log in and start scanning checkpoints</span></span></button>' +
-        '</div><div class="demoNote">Live app · data is stored securely in your Supabase database. · ' + APP_VERSION + '</div></div>';
-    }
+    app.innerHTML =
+      '<div class="login-wrap">' +
+      '<div class="brand" style="justify-content:center;margin-bottom:4px"><span class="logo" style="width:40px;height:40px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg></span></div>' +
+      '<h1 style="font-size:26px;font-weight:750;letter-spacing:-.02em">Sentinel Guard</h1>' +
+      '<p class="lead">Live security patrol tracking — every scan is GPS-verified and shared with your team instantly.</p>' +
+      '<div class="card" style="padding:24px;text-align:left;max-width:380px;margin:16px auto 0">' +
+      '<label class="f" for="lu">Username</label><input class="inp" id="lu" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Manager email or guard code">' +
+      '<label class="f" for="lp" style="margin-top:12px">Password</label><input class="inp" id="lp" type="password" autocomplete="current-password" placeholder="Password or PIN">' +
+      '<div class="err">' + esc(loginErr) + '</div>' +
+      '<button class="btn btn-primary" data-act="unilogin" style="width:100%;justify-content:center;margin-top:10px">Sign in</button>' +
+      '</div></div>';
+    setTimeout(function () {
+      var u = $("#lu"), p = $("#lp");
+      if (u) u.focus();
+      function onEnter(e) { if (e.key === "Enter") { var b = document.querySelector('[data-act="unilogin"]'); if (b) b.click(); } }
+      if (u) u.addEventListener("keydown", onEnter);
+      if (p) p.addEventListener("keydown", onEnter);
+    }, 40);
   }
 
   /* ---------- manager ---------- */
@@ -13225,6 +13209,31 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     switch (act) {
       case "mode": loginMode = t.dataset.mode; loginErr = ""; renderLogin(); break;
       case "loginhome": loginMode = null; loginErr = ""; renderLogin(); break;
+      case "unilogin": withBusy(async function () {
+        var u = (($("#lu") || {}).value || "").trim(), p = (($("#lp") || {}).value || "");
+        if (!u || !p) { loginErr = "Enter your username and password."; renderLogin(); return; }
+        if (u.indexOf("@") > -1) {
+          // Looks like an email -> manager portal
+          var r = await SB.auth.signInWithPassword({ email: u, password: p });
+          if (r.error) { loginErr = "Username or password not recognised."; renderLogin(); return; }
+          loginErr = ""; await loadManager();
+        } else {
+          // Otherwise -> guard portal (code + PIN)
+          var g = await SB.rpc("guard_login", { p_code: u, p_pin: p.trim() });
+          if (g.error) { loginErr = "Username or password not recognised."; renderLogin(); return; }
+          var res = g.data || {};
+          if (!res.ok) {
+            loginErr = res.reason === "locked" ? "Too many attempts. Try again in " + (res.minutes || 15) + " min." : "Username or password not recognised.";
+            renderLogin(); return;
+          }
+          session.guard = { id: res.id, name: res.name, token: res.token };
+          localStorage.setItem("sg_guard", JSON.stringify(session.guard));
+          session.role = "guard"; session.roundStart = now(); session.round = [];
+          await loadGuardCheckpoints();
+          await refreshPerms(); await refreshQueued();
+          render(); flushQueue(); if (permCam && permGeo) { requestGeo(); maybePendingScan(); }
+        }
+      }); break;
       case "mgrsignin": withBusy(async function () {
         var em = ($("#em") || {}).value || "", pw = ($("#pw") || {}).value || "";
         var r = await SB.auth.signInWithPassword({ email: em.trim(), password: pw });
