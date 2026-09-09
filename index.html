@@ -12634,7 +12634,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   var fmtD = function (ts) { return new Date(ts).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }); };
   var mapsLink = function (g) { return "https://maps.google.com/?q=" + g.lat + "," + g.lng; };
   var GEOFENCE_M = 15;
-  var APP_VERSION = "v20";
+  var APP_VERSION = "v21";
   var scanCp = null;
   function distM(lat1, lng1, lat2, lng2) {
     var R = 6371000, r = Math.PI / 180;
@@ -12760,7 +12760,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     if (prof.error) throw prof.error;
     if (!prof.data) throw new Error("No manager profile. Try signing up first.");
     state.hotel_id = prof.data.hotel_id; state.me = prof.data;
-    try { var h = await SB.from("hotels").select("name").eq("id", state.hotel_id).maybeSingle(); state.hotelName = (h.data && h.data.name) || "My Hotel"; } catch (e) { state.hotelName = "My Hotel"; }
+    try { var h = await SB.from("hotels").select("*").eq("id", state.hotel_id).maybeSingle(); state.hotelName = (h.data && h.data.name) || "My Hotel"; state.hotelLogo = (h.data && h.data.logo_url) || null; } catch (e) { state.hotelName = "My Hotel"; state.hotelLogo = null; }
     await reloadAll();
     session.role = "manager"; render();
     if (!DEMO) startManagerLive();
@@ -12906,7 +12906,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       '</div>';
     var tabsArr = [["overview", "Overview"], ["reports", "Reports" + (openIssues ? " · " + openIssues : "")], ["flags", "Security flags" + (state.flags.length ? " · " + state.flags.length : "")], ["log", "Patrol log"], ["team", "Guards"], ["points", "Checkpoints"]];
     var tabs = '<div class="tabs">' + tabsArr.map(function (t) { return '<button class="tab ' + (tab === t[0] ? "active" : "") + '" data-act="tab" data-tab="' + t[0] + '">' + t[1] + "</button>"; }).join("") + "</div>";
-    var toolbar = '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin:2px 0 14px;flex-wrap:wrap"><span class="faint" style="font-size:12.5px">' + esc(state.hotelName) + ' <button class="btn btn-ghost" data-act="renamehotel" title="Rename hotel" style="padding:1px 7px;font-size:12px">✎</button> · ' + fmtD(now()) + ' · ' + APP_VERSION + '</span><button class="btn btn-primary" data-act="eod" style="padding:9px 15px">📄 Generate Report (PDF)</button></div>';
+    var toolbar = '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin:2px 0 14px;flex-wrap:wrap"><span class="faint" style="font-size:12.5px;display:inline-flex;align-items:center;gap:8px">' + (state.hotelLogo ? '<img src="' + esc(state.hotelLogo) + '" alt="" style="height:22px;max-width:80px;object-fit:contain;vertical-align:middle">' : '') + '<span>' + esc(state.hotelName) + ' <button class="btn btn-ghost" data-act="renamehotel" title="Rename hotel" style="padding:1px 7px;font-size:12px">✎</button> · ' + fmtD(now()) + ' · ' + APP_VERSION + '</span></span><button class="btn btn-primary" data-act="eod" style="padding:9px 15px">📄 Generate Report (PDF)</button></div>';
     var panel = "";
     if (tab === "overview") panel = panelOverview(today);
     else if (tab === "reports") panel = panelReports();
@@ -13162,7 +13162,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     var html =
       '<div class="eod-page">' +
       '<div class="eod-top"><div class="eod-brand">' + shield + '<div><div class="eod-bt">SENTINEL GUARD</div><div class="eod-bs">Security Patrol System</div></div></div>' +
-      '<div class="eod-meta"><div class="eod-title">End-of-Day Patrol Report</div><div class="eod-hotel">' + esc(state.hotelName) + '</div></div></div>' +
+      '<div class="eod-meta"><div class="eod-title">End-of-Day Patrol Report</div><div class="eod-hotel">' + esc(state.hotelName) + '</div></div>' +
+      (state.hotelLogo ? '<img class="eod-logo" src="' + esc(state.hotelLogo) + '" alt="" style="max-height:42px;max-width:150px;object-fit:contain;margin-left:14px">' : '') + '</div>' +
       '<div class="eod-datebar"><span><b>Report date</b> ' + dateLine + '</span><span><b>Generated</b> ' + genStr + '</span><span><b>Prepared by</b> ' + esc(state.me ? state.me.name : "—") + "</span></div>" +
       '<div class="eod-kpis">' + stat(scans.length, "Scans today") + stat(coveredN + "/" + total, "Checkpoints covered") + stat(pct + "%", "Coverage") + stat(activeGuards, "Guards on duty") + stat(openIssues, "Open issues") + stat(flags.length, "Security flags") + "</div>" +
       sectHead("Patrol log", scans.length + " scans") + '<table class="eod-t"><thead><tr><th>Date</th><th>Time</th><th>Guard</th><th>Location</th><th>Status</th><th>GPS</th><th>Detail</th></tr></thead><tbody>' + logRows + "</tbody></table>" +
