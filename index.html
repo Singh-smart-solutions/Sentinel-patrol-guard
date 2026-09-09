@@ -12634,7 +12634,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   var fmtD = function (ts) { return new Date(ts).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }); };
   var mapsLink = function (g) { return "https://maps.google.com/?q=" + g.lat + "," + g.lng; };
   var GEOFENCE_M = 15;
-  var APP_VERSION = "v25";
+  var APP_VERSION = "v26";
   var scanCp = null;
   function distM(lat1, lng1, lat2, lng2) {
     var R = 6371000, r = Math.PI / 180;
@@ -12765,7 +12765,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     session.role = "manager"; render();
     if (!DEMO) startManagerLive();
   }
-  async function reloadAll() { await Promise.all([loadGuards(), loadCheckpoints(), loadScans(), loadFlags()]); }
+  async function reloadAll() { await Promise.all([loadGuards(), loadCheckpoints(), loadScans(), loadFlags(), loadFollowups()]); }
 
   /* ---------- manager live updates (instant via Realtime, 15s poll fallback) ---------- */
   var liveChan = null, livePoll = null, liveBusy = false;
@@ -12775,7 +12775,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     var ae = document.activeElement;
     if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA")) return;  // don't disrupt typing
     liveBusy = true;
-    try { await Promise.all([loadScans(), loadFlags(), loadGuards(), loadCheckpoints()]); renderManager(); } catch (e) { }
+    try { await Promise.all([loadScans(), loadFlags(), loadGuards(), loadCheckpoints(), loadFollowups()]); renderManager(); } catch (e) { }
     liveBusy = false;
   }
   function startManagerLive() {
@@ -12802,6 +12802,14 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     var r = await SB.from("security_flags").select("*").order("created_at", { ascending: false }).limit(200);
     if (r.error) { state.flags = []; return; } state.flags = r.data || [];
   }
+  async function loadFollowups() {
+    var r = await SB.from("issue_updates").select("*").order("created_at", { ascending: true }).limit(2000);
+    var map = {};
+    if (!r.error) (r.data || []).forEach(function (u) { (map[u.scan_id] = map[u.scan_id] || []).push({ note: u.note, photo: u.photo_path || null, ts: Date.parse(u.created_at) }); });
+    state.followups = map;
+  }
+  function daysSince(ts) { return Math.max(0, Math.floor((Date.now() - ts) / 86400000)); }
+  function openDaysLabel(ts) { var d = daysSince(ts); return d <= 0 ? "reported today" : d === 1 ? "open 1 day" : "open " + d + " days"; }
   async function loadGuards() {
     var r = await SB.from("guards").select("id,name,phone,code,active,created_at").order("created_at", { ascending: true });
     if (r.error) throw r.error; state.guards = r.data || [];
@@ -12923,7 +12931,12 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     if (!issues.length) return '<div class="shead"><h2>Issue reports</h2></div>' + emptyCard("No issues reported. All checkpoints clear. ✓");
     return '<div class="shead"><h2>Issue reports</h2><span class="ey">' + issues.filter(function (i) { return !i.resolved; }).length + ' open</span></div><div style="display:grid;gap:12px">' +
       issues.map(function (s) {
-        return '<div class="card rep ' + (s.resolved ? "resolved" : "") + '"><span class="ph" style="display:grid;place-items:center;color:var(--faint)">' + warn() + '</span><div class="g"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="pill ' + sevCls(s.severity) + '"><span class="dot"></span>' + esc(s.severity || "Issue") + '</span><b>' + esc(s.cpName) + "</b>" + (s.resolved ? '<span class="pill mut">Resolved</span>' : "") + '</div><p style="margin:7px 0 8px;font-size:14.5px">' + esc(s.note || "") + '</p>' + (s.photo ? '<img data-act="viewphoto" src="' + esc(s.photo) + '" alt="issue photo" style="max-height:150px;max-width:100%;border-radius:10px;border:1px solid var(--hair);cursor:zoom-in;margin-bottom:8px">' : "") + '<div class="mono" style="font-size:12px;color:var(--faint)">' + esc(s.guardName) + " · " + fmtD(s.ts) + " " + fmtT(s.ts) + (s.geo ? ' · <a href="' + mapsLink(s.geo) + '" target="_blank" rel="noopener" style="color:var(--ok);text-decoration:none">📍 GPS ±' + s.geo.acc + "m</a>" : "") + "</div></div>" + (s.resolved ? "" : '<button class="btn btn-ghost" data-act="resolve" data-id="' + s.id + '" style="flex:none;padding:7px 11px;font-size:13px">Mark resolved</button>') + "</div>";
+        var fups = (state.followups || {})[s.id] || [];
+        var ageBadge = s.resolved ? '<span class="pill mut">Resolved</span>' : '<span class="pill ' + (daysSince(s.ts) >= 2 ? "warn" : "mut") + '">' + openDaysLabel(s.ts) + '</span>';
+        var fupHtml = fups.length ? '<div style="margin-top:10px;border-top:1px solid var(--hair);padding-top:8px"><div class="ey" style="margin-bottom:6px">Follow-ups · ' + fups.length + '</div>' +
+          fups.map(function (u) { return '<div style="margin-bottom:8px"><div class="mono" style="font-size:11.5px;color:var(--faint)">' + fmtD(u.ts) + " " + fmtT(u.ts) + '</div>' + (u.note ? '<div style="font-size:13.5px">' + esc(u.note) + '</div>' : "") + (u.photo ? '<img data-act="viewphoto" src="' + esc(u.photo) + '" alt="" style="max-height:90px;border-radius:8px;border:1px solid var(--hair);margin-top:4px;cursor:zoom-in">' : "") + '</div>'; }).join("") + '</div>' : "";
+        var btns = s.resolved ? "" : '<div style="display:flex;flex-direction:column;gap:6px;flex:none"><button class="btn btn-ghost" data-act="followup" data-id="' + s.id + '" style="padding:7px 11px;font-size:13px">＋ Follow up</button><button class="btn btn-ghost" data-act="resolve" data-id="' + s.id + '" style="padding:7px 11px;font-size:13px">Mark resolved</button></div>';
+        return '<div class="card rep ' + (s.resolved ? "resolved" : "") + '"><span class="ph" style="display:grid;place-items:center;color:var(--faint)">' + warn() + '</span><div class="g"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="pill ' + sevCls(s.severity) + '"><span class="dot"></span>' + esc(s.severity || "Issue") + '</span><b>' + esc(s.cpName) + "</b>" + ageBadge + '</div><p style="margin:7px 0 8px;font-size:14.5px">' + esc(s.note || "") + '</p>' + (s.photo ? '<img data-act="viewphoto" src="' + esc(s.photo) + '" alt="issue photo" style="max-height:150px;max-width:100%;border-radius:10px;border:1px solid var(--hair);cursor:zoom-in;margin-bottom:8px">' : "") + '<div class="mono" style="font-size:12px;color:var(--faint)">' + esc(s.guardName) + " · reported " + fmtD(s.ts) + " " + fmtT(s.ts) + (s.geo ? ' · <a href="' + mapsLink(s.geo) + '" target="_blank" rel="noopener" style="color:var(--ok);text-decoration:none">📍 GPS ±' + s.geo.acc + "m</a>" : "") + "</div>" + fupHtml + "</div>" + btns + "</div>";
       }).join("") + "</div>";
   }
   function panelLog() {
@@ -13019,6 +13032,17 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       '<div class="big2"><button class="btn btn-primary" data-act="saveguard" style="justify-content:center;padding:13px">Add guard</button><button class="btn btn-ghost" data-act="close" style="justify-content:center">Cancel</button></div>');
     setTimeout(function () { $("#gn").focus(); }, 50);
   }
+  function followUpModal(s) {
+    pendingPhoto = null;
+    var m = modal('<div class="ey">Follow-up</div><h3 style="margin-top:6px">Update — ' + esc(s.cpName) + '</h3>' +
+      '<p class="muted" style="font-size:13.5px;margin:6px 0 4px">The issue is still ongoing. This update is added to the report with today’s date.</p>' +
+      '<div style="margin-top:10px"><label class="f" for="fupnote">Update</label><textarea class="inp" id="fupnote" rows="3" placeholder="e.g. still not fixed — contractor called"></textarea></div>' +
+      '<div style="margin-top:10px"><button class="btn btn-ghost" data-act="addphoto" style="justify-content:center;width:100%">📷 Add photo</button><input type="file" id="photoInput" accept="image/*" capture="environment" hidden><div id="photoPrev"></div></div>' +
+      '<div class="err" id="ferr"></div>' +
+      '<div class="big2"><button class="btn btn-primary" data-act="savefollowup" data-id="' + s.id + '" style="justify-content:center;padding:13px">Save follow-up</button><button class="btn btn-ghost" data-act="close" style="justify-content:center">Cancel</button></div>');
+    var pin = $("#photoInput", m); if (pin) pin.addEventListener("change", onPhotoPick);
+    setTimeout(function () { var n = $("#fupnote", m); if (n) n.focus(); }, 50);
+  }
   function resetPinModal(g) {
     modal('<div class="ey">Guard access</div><h3 style="margin-top:6px">Reset PIN — ' + esc(g.name) + '</h3>' +
       '<p class="muted" style="font-size:13.5px;margin:6px 0 4px">Set a new 6-digit PIN for this guard. Their login name stays <span class="mono">' + esc(g.code) + '</span>. Share the new PIN with them.</p>' +
@@ -13082,10 +13106,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         '<button class="chip" data-act="rppreset" data-from="18:00" data-to="06:00">Night shift</button>' +
       '</div>' +
       '<p class="faint" style="font-size:12px;margin-top:8px">Night shift crosses midnight — the report runs from the evening into the next morning.</p>' +
-      '<div class="big2"><button class="btn btn-primary" data-act="genreport" style="justify-content:center;padding:13px">Generate PDF</button><button class="btn btn-ghost" data-act="close" style="justify-content:center">Cancel</button></div>');
+      '<div class="big2"><button class="btn btn-primary" data-act="genreport" style="justify-content:center;padding:13px">📄 Generate PDF</button><button class="btn" data-act="genxlsx" style="justify-content:center;padding:13px">📊 Export Excel</button></div><button class="btn btn-ghost" data-act="close" style="justify-content:center;width:100%;margin-top:8px">Cancel</button>');
   }
 
-  async function generateReport(dateStr, fromStr, toStr) {
+  async function generateReport(dateStr, fromStr, toStr, mode) {
     if (!dateStr) { flash("Pick a date first.", true); return; }
     var start = new Date(dateStr + "T" + (fromStr || "00:00") + ":00");
     var end = new Date(dateStr + "T" + (toStr || "23:59") + ":59");
@@ -13098,7 +13122,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     if (sr.error) throw sr.error;
     var scans = (sr.data || []).map(function (s) {
       return {
-        cpId: s.checkpoint_id, cpName: s.checkpoints ? s.checkpoints.name : "—", cpZone: s.checkpoints ? s.checkpoints.zone : "",
+        id: s.id, cpId: s.checkpoint_id, cpName: s.checkpoints ? s.checkpoints.name : "—", cpZone: s.checkpoints ? s.checkpoints.zone : "",
         guardId: s.guard_id, guardName: s.guards ? s.guards.name : "—",
         status: s.status, note: s.note, severity: s.severity, resolved: s.resolved, photo: s.photo_path || null,
         geo: s.lat != null ? { lat: s.lat, lng: s.lng, acc: s.gps_accuracy } : null,
@@ -13109,7 +13133,109 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       .gte("created_at", start.toISOString()).lte("created_at", end.toISOString())
       .order("created_at", { ascending: true }).limit(5000);
     var flags = fr.error ? [] : (fr.data || []);
+    if (mode === "xlsx") { await buildWorkbook(start, end, scans, flags); return; }
     buildReport(start, end, scans, flags);
+  }
+
+  /* ---------- Excel (.xlsx) export with embedded photos ---------- */
+  function loadExcelLib() {
+    return new Promise(function (res, rej) {
+      if (window.ExcelJS) return res(window.ExcelJS);
+      var sc = document.createElement("script");
+      sc.src = "https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js";
+      sc.onload = function () { window.ExcelJS ? res(window.ExcelJS) : rej(new Error("ExcelJS failed to load")); };
+      sc.onerror = function () { rej(new Error("Couldn't load the Excel library — check your connection.")); };
+      document.head.appendChild(sc);
+    });
+  }
+  async function buildWorkbook(start, end, scans, flags) {
+    var ExcelJS;
+    try { ExcelJS = await loadExcelLib(); } catch (e) { flash(e.message, true); return; }
+    flash("Building Excel…");
+    var wb = new ExcelJS.Workbook();
+    wb.creator = "Sentinel Guard"; wb.created = new Date();
+    var GREENHDR = "FF1F6F5C", ZEBRA = "FFF4F7F6";
+    function styleHeader(row) {
+      row.eachCell(function (c) {
+        c.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
+        c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GREENHDR } };
+        c.alignment = { vertical: "middle" }; c.border = { bottom: { style: "thin", color: { argb: "FFBBBBBB" } } };
+      });
+    }
+    function zebra(ws, fromRow) { ws.eachRow(function (row, n) { if (n > fromRow && n % 2 === 0) row.eachCell(function (c) { if (!c.fill || c.fill.fgColor.argb !== GREENHDR) c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: ZEBRA } }; }); }); }
+    var dISO = function (t) { return new Date(t); };
+    var covered = {}; scans.forEach(function (s) { covered[s.cpId] = 1; });
+    var issues = scans.filter(function (s) { return s.status === "issue"; });
+    var openIssues = issues.filter(function (s) { return !s.resolved; }).length;
+    var total = state.checkpoints.length || 0;
+    var rangeStr = fmtDateFull(start.getTime()) + "  " + fmtT(start.getTime()) + " – " + fmtDateFull(end.getTime()) + " " + fmtT(end.getTime());
+
+    // ---- Summary sheet ----
+    var sum = wb.addWorksheet("Summary");
+    sum.columns = [{ width: 26 }, { width: 46 }];
+    sum.addRow([state.hotelName || "Hotel", ""]).font = { bold: true, size: 15 };
+    sum.addRow(["End-of-Day Patrol Report", ""]).font = { size: 11, color: { argb: "FF666666" } };
+    sum.addRow(["Window", rangeStr]);
+    sum.addRow(["Prepared by", (state.me && state.me.name) || "—"]);
+    sum.addRow(["Generated", new Date().toLocaleString()]);
+    sum.addRow([]);
+    [["Scans", scans.length], ["Checkpoints covered", Object.keys(covered).length + " / " + total],
+     ["Guards on duty", Object.keys(scans.reduce(function (a, s) { a[s.guardId] = 1; return a; }, {})).length],
+     ["Open issues", openIssues], ["Security flags", flags.length]
+    ].forEach(function (r) { var row = sum.addRow(r); row.getCell(1).font = { bold: true }; });
+
+    // ---- Patrol Log sheet ----
+    var log = wb.addWorksheet("Patrol Log");
+    log.columns = [{ header: "Date", width: 13 }, { header: "Time", width: 9 }, { header: "Guard", width: 18 }, { header: "Location", width: 22 }, { header: "Zone", width: 16 }, { header: "Status", width: 11 }, { header: "GPS ±m", width: 9 }, { header: "Note", width: 40 }, { header: "Photo", width: 8 }];
+    styleHeader(log.getRow(1));
+    scans.forEach(function (s) {
+      log.addRow([fmtD(s.ts), fmtT(s.ts), s.guardName, s.cpName, s.cpZone || "", s.status === "issue" ? (s.severity || "Issue") : "Normal", s.geo ? s.geo.acc : "", s.note || "", s.photo ? "Yes" : ""]);
+    });
+    zebra(log, 1); log.views = [{ state: "frozen", ySplit: 1 }];
+
+    // ---- Issues sheet (with embedded photos) ----
+    var iss = wb.addWorksheet("Issues");
+    iss.columns = [{ header: "Reported", width: 13 }, { header: "Time", width: 9 }, { header: "Days open", width: 10 }, { header: "Location", width: 22 }, { header: "Reported by", width: 18 }, { header: "Severity", width: 10 }, { header: "Status", width: 11 }, { header: "Description", width: 44 }, { header: "Follow-ups", width: 44 }, { header: "Photo", width: 22 }];
+    styleHeader(iss.getRow(1));
+    issues.forEach(function (s) {
+      var fups = (state.followups || {})[s.id] || [];
+      var fupTxt = fups.map(function (u) { return fmtD(u.ts) + ": " + (u.note || "(photo)"); }).join("\n");
+      var row = iss.addRow([fmtD(s.ts), fmtT(s.ts), s.resolved ? "—" : daysSince(s.ts), s.cpName, s.guardName, s.severity || "Issue", s.resolved ? "Resolved" : "Open", s.note || "", fupTxt, ""]);
+      row.alignment = { vertical: "top", wrapText: true };
+      if (s.photo && /^data:image/.test(s.photo)) {
+        try {
+          var ext = s.photo.indexOf("image/png") > -1 ? "png" : "jpeg";
+          var imgId = wb.addImage({ base64: s.photo, extension: ext });
+          row.height = 90;
+          var rn = row.number - 1;
+          iss.addImage(imgId, { tl: { col: 9, row: rn + 0.1 }, ext: { width: 150, height: 112 } });
+        } catch (e) { }
+      }
+    });
+    zebra(iss, 1); iss.views = [{ state: "frozen", ySplit: 1 }];
+
+    // ---- Security Flags sheet ----
+    var fl = wb.addWorksheet("Security Flags");
+    fl.columns = [{ header: "Date", width: 13 }, { header: "Time", width: 9 }, { header: "Guard", width: 18 }, { header: "Location", width: 22 }, { header: "Reason", width: 18 }, { header: "Distance", width: 12 }];
+    styleHeader(fl.getRow(1));
+    flags.forEach(function (f) {
+      var ts = Date.parse(f.created_at);
+      var reason = f.reason === "no_gps" ? "Location off" : f.reason === "accuracy" ? "Weak / fake GPS" : f.reason === "geofence" ? "Out of range" : f.reason;
+      fl.addRow([fmtD(ts), fmtT(ts), f.guard_name || "—", f.checkpoint_name || "—", reason, f.distance_m != null ? f.distance_m + " m" : "—"]);
+    });
+    zebra(fl, 1);
+
+    // ---- download ----
+    try {
+      var buf = await wb.xlsx.writeBuffer();
+      var blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      var fn = (state.hotelName || "Sentinel") .replace(/[^\w]+/g, "-") + "-Patrol-" + start.getFullYear() + pad2(start.getMonth() + 1) + pad2(start.getDate()) + ".xlsx";
+      a.href = url; a.download = fn; document.body.appendChild(a); a.click();
+      setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 4000);
+      flash("Excel downloaded.");
+    } catch (e) { flash("Couldn't create the Excel file.", true); }
   }
 
   function buildReport(start, end, scans, flags) {
@@ -13139,8 +13265,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     }).join("") || '<tr><td colspan="7" class="eod-empty">No patrols recorded in this window.</td></tr>';
 
     var issueRows = issues.map(function (s) {
+      var fups = (state.followups || {})[s.id] || [];
       var det = esc(s.note || "—") + (s.photo ? '<br><img src="' + esc(s.photo) + '" alt="" style="max-height:120px;max-width:180px;margin-top:5px;border-radius:6px;border:1px solid #d8dee6">' : "");
-      return '<tr><td class="eod-mono">' + fmtD(s.ts) + '</td><td class="num">' + fmtT(s.ts) + "</td><td><b>" + esc(s.cpName) + "</b></td><td>" + esc(s.guardName) + "</td><td>" + (s.resolved ? '<span class="eb eb-ok">Resolved</span>' : '<span class="eb eb-warn">Open</span>') + "</td><td>" + det + "</td></tr>";
+      if (fups.length) det += '<div style="margin-top:6px;border-top:1px dashed #ccc;padding-top:5px"><b style="font-size:11px">Follow-ups:</b>' + fups.map(function (u) { return '<div style="margin-top:3px;font-size:11.5px"><b>' + fmtD(u.ts) + ":</b> " + esc(u.note || "(photo)") + (u.photo ? '<br><img src="' + esc(u.photo) + '" alt="" style="max-height:100px;max-width:160px;margin-top:3px;border-radius:6px;border:1px solid #d8dee6">' : "") + "</div>"; }).join("") + "</div>";
+      var statusCell = s.resolved ? '<span class="eb eb-ok">Resolved</span>' : '<span class="eb eb-warn">Open</span><div style="font-size:10px;color:#555;margin-top:2px">' + openDaysLabel(s.ts) + "</div>";
+      return '<tr><td class="eod-mono">' + fmtD(s.ts) + '</td><td class="num">' + fmtT(s.ts) + "</td><td><b>" + esc(s.cpName) + "</b></td><td>" + esc(s.guardName) + "</td><td>" + statusCell + "</td><td>" + det + "</td></tr>";
     }).join("");
     var issuesBlock = issues.length
       ? sectHead("Issues reported", issues.length + "") + '<table class="eod-t"><thead><tr><th>Date</th><th>Time</th><th>Location</th><th>Inspected by</th><th>Status</th><th>Detail</th></tr></thead><tbody>' + issueRows + "</tbody></table>"
@@ -13388,6 +13517,14 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       case "qr": (function () { var c = state.checkpoints.find(function (x) { return x.id === id; }); if (c) qrModal(c); })(); break;
       case "printqr": (function () { var c = state.checkpoints.find(function (x) { return x.id === id; }); if (c) printQR(c); })(); break;
       case "resolve": withBusy(async function () { var r = await SB.from("scans").update({ resolved: true, resolved_at: new Date().toISOString() }).eq("id", id); if (r.error) throw r.error; await loadScans(); renderManager(); flash("Marked resolved"); }); break;
+      case "followup": { var iss = (state.scans || []).filter(function (x) { return x.id === id; })[0]; if (iss) followUpModal(iss); break; }
+      case "savefollowup": withBusy(async function () {
+        var note = (($("#fupnote") || {}).value || "").trim();
+        if (!note && !pendingPhoto) { var fe = $("#ferr"); if (fe) fe.textContent = "Add a note or a photo."; return; }
+        var r = await SB.from("issue_updates").insert({ hotel_id: state.hotel_id, scan_id: id, note: note || null, photo_path: pendingPhoto || null }).select("id");
+        if (r.error) { var fe2 = $("#ferr"); if (fe2) fe2.textContent = "Couldn't save: " + r.error.message; return; }
+        pendingPhoto = null; closeModal(); await loadFollowups(); renderManager(); flash("Follow-up added");
+      }); break;
       case "eod": reportModal(); break;
       case "rppreset": (function () {
         var f = $("#rpFrom"), tt = $("#rpTo");
@@ -13399,6 +13536,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         var dt = (($("#rpDate") || {}).value || ""), fr = (($("#rpFrom") || {}).value || "00:00"), to = (($("#rpTo") || {}).value || "23:59");
         if (!dt) { flash("Pick a date first.", true); return; }
         closeModal(); await generateReport(dt, fr, to);
+      }); break;
+      case "genxlsx": withBusy(async function () {
+        var dt = (($("#rpDate") || {}).value || ""), fr = (($("#rpFrom") || {}).value || "00:00"), to = (($("#rpTo") || {}).value || "23:59");
+        if (!dt) { flash("Pick a date first.", true); return; }
+        closeModal(); await generateReport(dt, fr, to, "xlsx");
       }); break;
 
       case "permcam": withBusy(async function () {
