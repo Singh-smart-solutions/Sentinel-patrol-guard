@@ -12634,7 +12634,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   var fmtD = function (ts) { return new Date(ts).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }); };
   var mapsLink = function (g) { return "https://maps.google.com/?q=" + g.lat + "," + g.lng; };
   var GEOFENCE_M = 15;
-  var APP_VERSION = "v23";
+  var APP_VERSION = "v24";
   var scanCp = null;
   function distM(lat1, lng1, lat2, lng2) {
     var R = 6371000, r = Math.PI / 180;
@@ -12859,7 +12859,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       '<h1 style="font-size:26px;font-weight:750;letter-spacing:-.02em">Sentinel Guard</h1>' +
       '<p class="lead">Live security patrol tracking — every scan is GPS-verified and shared with your team instantly.</p>' +
       '<div class="card" style="padding:24px;text-align:left;max-width:380px;margin:16px auto 0">' +
-      '<label class="f" for="lu">Username</label><input class="inp" id="lu" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Manager email or guard code">' +
+      '<label class="f" for="lu">Username</label><input class="inp" id="lu" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Manager email or guard name">' +
       '<label class="f" for="lp" style="margin-top:12px">Password</label><input class="inp" id="lp" type="password" autocomplete="current-password" placeholder="Password or PIN">' +
       '<div class="err">' + esc(loginErr) + '</div>' +
       '<button class="btn btn-primary" data-act="unilogin" style="width:100%;justify-content:center;margin-top:10px">Sign in</button>' +
@@ -12934,10 +12934,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       }).join("") : '<tr><td colspan="7"><div class="empty">No patrols recorded yet.</div></td></tr>') + "</tbody></table></div>";
   }
   function panelTeam() {
-    return '<div class="shead"><h2>Security guards</h2><button class="btn btn-primary" data-act="addguard">+ Add guard</button></div><div class="card scroll"><table class="tbl"><thead><tr><th>Name</th><th>Phone</th><th>Code</th><th>Patrols</th><th></th></tr></thead><tbody>' +
+    return '<div class="shead"><h2>Security guards</h2><button class="btn btn-primary" data-act="addguard">+ Add guard</button></div><div class="card scroll"><table class="tbl"><thead><tr><th>Name</th><th>Phone</th><th>Login name</th><th>Patrols</th><th></th></tr></thead><tbody>' +
       (state.guards.length ? state.guards.map(function (g) {
         return "<tr><td><b>" + esc(g.name) + '</b></td><td class="mono muted">' + esc(g.phone || "—") + '</td><td><span class="pill mut">' + esc(g.code) + '</span></td><td class="mono muted">' + state.scans.filter(function (s) { return s.guardId === g.id; }).length + '</td><td style="text-align:right"><button class="btn btn-ghost" data-act="resetpin" data-id="' + g.id + '" style="margin-right:8px">Reset PIN</button><button class="btn btn-danger" data-act="delguard" data-id="' + g.id + '">Remove</button></td></tr>';
-      }).join("") : '<tr><td colspan="5"><div class="empty">No guards yet — add your first.</div></td></tr>') + "</tbody></table></div><p class=\"faint\" style=\"font-size:12.5px;margin-top:12px\">Guards sign in with their <b>code</b> + <b>PIN</b>. Every scan is recorded under their name with time and GPS.</p>";
+      }).join("") : '<tr><td colspan="5"><div class="empty">No guards yet — add your first.</div></td></tr>') + "</tbody></table></div><p class=\"faint\" style=\"font-size:12.5px;margin-top:12px\">Guards sign in with their <b>name</b> + <b>PIN</b>. Every scan is recorded under their name with time and GPS.</p>";
   }
   function panelPoints() {
     var q = cpSearch.trim().toLowerCase();
@@ -13010,12 +13010,17 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     setTimeout(function () { var n = $("#note", m); if (n) n.focus(); }, 50);
   }
   function addGuardModal() {
-    modal('<div class="ey">New guard</div><h3 style="margin-top:6px">Add a security guard</h3><div style="margin-top:16px"><label class="f" for="gn">Full name</label><input class="inp" id="gn" placeholder="e.g. Daniel Mwangi"></div><div class="row" style="margin-top:12px"><div><label class="f" for="gp">Phone</label><input class="inp" id="gp" placeholder="+…"></div><div><label class="f" for="gcode">Login code</label><input class="inp mono" id="gcode" placeholder="e.g. DANIEL" style="text-transform:uppercase"></div></div><div style="margin-top:12px"><label class="f" for="gpn">PIN (6 digits)</label><input class="inp mono" id="gpn" inputmode="numeric" maxlength="6" placeholder="auto-generate if blank"></div><div class="big2"><button class="btn btn-primary" data-act="saveguard" style="justify-content:center;padding:13px">Add guard</button><button class="btn btn-ghost" data-act="close" style="justify-content:center">Cancel</button></div>');
+    modal('<div class="ey">New guard</div><h3 style="margin-top:6px">Add a security guard</h3>' +
+      '<p class="muted" style="font-size:13.5px;margin:6px 0 2px">The guard signs in with their <b>name</b> and this <b>PIN</b>.</p>' +
+      '<div style="margin-top:12px"><label class="f" for="gn">Full name</label><input class="inp" id="gn" placeholder="e.g. Daniel Mwangi"></div>' +
+      '<div class="row" style="margin-top:12px"><div><label class="f" for="gp">Phone (optional)</label><input class="inp" id="gp" placeholder="+…"></div><div><label class="f" for="gpn">PIN (4–6 digits)</label><input class="inp mono" id="gpn" inputmode="numeric" maxlength="6" placeholder="auto if blank"></div></div>' +
+      '<div class="err" id="gerr"></div>' +
+      '<div class="big2"><button class="btn btn-primary" data-act="saveguard" style="justify-content:center;padding:13px">Add guard</button><button class="btn btn-ghost" data-act="close" style="justify-content:center">Cancel</button></div>');
     setTimeout(function () { $("#gn").focus(); }, 50);
   }
   function resetPinModal(g) {
     modal('<div class="ey">Guard access</div><h3 style="margin-top:6px">Reset PIN — ' + esc(g.name) + '</h3>' +
-      '<p class="muted" style="font-size:13.5px;margin:6px 0 4px">Set a new 6-digit PIN for this guard. Their login code stays <span class="mono">' + esc(g.code) + '</span>. Share the new PIN with them.</p>' +
+      '<p class="muted" style="font-size:13.5px;margin:6px 0 4px">Set a new 6-digit PIN for this guard. Their login name stays <span class="mono">' + esc(g.code) + '</span>. Share the new PIN with them.</p>' +
       '<div style="margin-top:12px"><label class="f" for="npin">New PIN (6 digits)</label><input class="inp mono" id="npin" inputmode="numeric" maxlength="6" placeholder="auto-generate if blank" style="letter-spacing:.3em;font-size:18px"></div>' +
       '<div class="err" id="pinerr"></div>' +
       '<div class="big2"><button class="btn btn-primary" data-act="savepin" data-id="' + g.id + '" style="justify-content:center;padding:13px">Save new PIN</button><button class="btn btn-ghost" data-act="close" style="justify-content:center">Cancel</button></div>');
@@ -13299,14 +13304,20 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       }); break;
       case "saveguard": withBusy(async function () {
         var n = (($("#gn") || {}).value || "").trim(), p = (($("#gp") || {}).value || "").trim();
-        var code = (($("#gcode") || {}).value || "").trim().toUpperCase().replace(/\s+/g, "");
         var pn = (($("#gpn") || {}).value || "").trim();
         if (!n) { $("#gn").focus(); return; }
-        if (!code) code = n.split(" ")[0].toUpperCase();
+        if (pn && !/^\d{4,6}$/.test(pn)) { var pe = $("#gerr"); if (pe) pe.textContent = "PIN must be 4–6 digits."; return; }
+        // Guard logs in with their first name (single word, easy to type).
+        var code = n.split(/\s+/)[0].toUpperCase().replace(/[^A-Z0-9]/g, "");
+        if (!code) code = "GUARD";
         if (!pn) pn = String(Math.floor(100000 + Math.random() * 900000));
         var r = await SB.rpc("create_guard", { p_name: n, p_phone: p, p_code: code, p_pin: pn });
-        if (r.error) throw r.error;
-        closeModal(); await loadGuards(); renderManager(); flash(n + " added · code " + code + " · PIN " + pn);
+        if (r.error) {
+          var em = r.error.message || "";
+          if (/duplicate|unique/i.test(em)) { var ge = $("#gerr"); if (ge) ge.textContent = 'A guard who logs in as "' + code + '" already exists. Use a different first name or add an initial (e.g. "Sam K").'; return; }
+          throw r.error;
+        }
+        closeModal(); await loadGuards(); renderManager(); flash(n + ' added · logs in as "' + code + '" · PIN ' + pn);
       }); break;
       case "delguard": (function () { var g = state.guards.find(function (x) { return x.id === id; }); if (!g) return; if (!confirm("Remove " + g.name + "? Past patrol records stay in the log.")) return; withBusy(async function () { var r = await SB.from("guards").delete().eq("id", id); if (r.error) throw r.error; await loadGuards(); renderManager(); flash(g.name + " removed"); }); })(); break;
 
