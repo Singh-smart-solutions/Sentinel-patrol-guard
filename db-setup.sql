@@ -117,7 +117,7 @@ create policy p_scans      on public.scans       for all   to authenticated usin
 -- ---------- GUARD-SIDE RPCs (validated by PIN / session token) ----------
 -- Manager creates a guard (hashes the PIN server-side)
 create or replace function public.create_guard(p_name text, p_phone text, p_code text, p_pin text)
-returns public.guards language plpgsql security definer set search_path = public as $$
+returns public.guards language plpgsql security definer set search_path = public, extensions as $$
 declare g public.guards; h uuid;
 begin
   h := public.my_hotel();
@@ -129,6 +129,9 @@ begin
 end $$;
 
 -- Guard signs in with code + PIN -> returns a session token
+-- (drop first so re-running the full setup is safe even after the lockout
+--  migration changes this function's return type to jsonb)
+drop function if exists public.guard_login(text, text);
 create or replace function public.guard_login(p_code text, p_pin text)
 returns table(id uuid, name text, token text)
 language plpgsql security definer set search_path = public as $$

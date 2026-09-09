@@ -38,6 +38,9 @@ $$;
 
 -- Record a scan WITH server-side geofence enforcement.
 -- Returns jsonb: { ok, reason?, distance?, threshold?, scan_id?, verified? }
+-- Drop first: the base schema's record_scan returns uuid, and CREATE OR REPLACE
+-- cannot change a function's return type.
+drop function if exists public.record_scan(text,uuid,text,text,text,double precision,double precision,integer);
 create or replace function public.record_scan(
   p_token text, p_checkpoint_id uuid, p_status text, p_note text,
   p_severity text, p_lat double precision, p_lng double precision, p_acc integer
