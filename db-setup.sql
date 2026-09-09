@@ -126,16 +126,20 @@ create policy p_scans      on public.scans       for all   to authenticated usin
 
 -- ---------- GUARD-SIDE RPCs (validated by PIN / session token) ----------
 -- Manager creates a guard (hashes the PIN server-side)
+-- Returns ONLY non-sensitive fields (id, name, code) — never pin_hash or
+-- session_token — so the manager RPC response cannot leak auth secrets.
+-- Drop first: the return type changes from the guards row to jsonb.
+drop function if exists public.create_guard(text, text, text, text);
 create or replace function public.create_guard(p_name text, p_phone text, p_code text, p_pin text)
-returns public.guards language plpgsql security definer set search_path = public, extensions as $$
-declare g public.guards; h uuid;
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare h uuid; gid uuid; gname text; gcode text;
 begin
   h := public.my_hotel();
   if h is null then raise exception 'not a manager'; end if;
   insert into public.guards(hotel_id, name, phone, code, pin_hash)
     values (h, p_name, nullif(p_phone,''), upper(p_code), crypt(p_pin, gen_salt('bf')))
-    returning * into g;
-  return g;
+    returning id, name, code into gid, gname, gcode;
+  return jsonb_build_object('ok', true, 'id', gid, 'name', gname, 'code', gcode);
 end $$;
 
 -- Guard signs in with code + PIN -> returns a session token

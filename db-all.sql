@@ -136,16 +136,20 @@ create policy p_scans      on public.scans       for all   to authenticated usin
 
 -- ---------- GUARD-SIDE RPCs (validated by PIN / session token) ----------
 -- Manager creates a guard (hashes the PIN server-side)
+-- Returns ONLY non-sensitive fields (id, name, code) — never pin_hash or
+-- session_token — so the manager RPC response cannot leak auth secrets.
+-- Drop first: the return type changes from the guards row to jsonb.
+drop function if exists public.create_guard(text, text, text, text);
 create or replace function public.create_guard(p_name text, p_phone text, p_code text, p_pin text)
-returns public.guards language plpgsql security definer set search_path = public, extensions as $$
-declare g public.guards; h uuid;
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare h uuid; gid uuid; gname text; gcode text;
 begin
   h := public.my_hotel();
   if h is null then raise exception 'not a manager'; end if;
   insert into public.guards(hotel_id, name, phone, code, pin_hash)
     values (h, p_name, nullif(p_phone,''), upper(p_code), crypt(p_pin, gen_salt('bf')))
-    returning * into g;
-  return g;
+    returning id, name, code into gid, gname, gcode;
+  return jsonb_build_object('ok', true, 'id', gid, 'name', gname, 'code', gcode);
 end $$;
 
 -- Guard signs in with code + PIN -> returns a session token
@@ -881,6 +885,53 @@ update public.guards
 notify pgrst, 'reload schema';
 
 -- Done. Existing guard sessions were invalidated; guards simply log in again.
+
+
+-- ==========================================================
+--  13. PROTECT GUARD AUTH SECRETS FROM MANAGERS (Issue #1B)
+-- ==========================================================
+-- ============================================================
+--  SENTINEL GUARD — Protect guard auth secrets from managers (Issue #1B)
+--  Run ONCE in Supabase -> SQL Editor. Safe to re-run (idempotent).
+--
+--  Managers may read/manage normal guard info, but the database must
+--  NEVER hand them the authentication/security columns:
+--     pin_hash, session_token, session_expires, failed_attempts, locked_until
+--
+--  Enforcement is column-level: the authenticated role's table-wide SELECT
+--  on public.guards is removed and replaced with SELECT on ONLY the safe
+--  columns. RLS is unchanged (still filters rows to the manager's hotel),
+--  and the SECURITY DEFINER auth functions (which run as the table owner)
+--  keep full internal access to every column. anon gets no direct SELECT
+--  at all — guards reach data only through the definer RPCs.
+--
+--  (create_guard was also changed to return jsonb with only id/name/code,
+--   so the RPC response can never carry pin_hash or session_token — see
+--   db-setup.sql.)
+-- ============================================================
+
+-- Remove any table-wide SELECT the roles may have (Supabase grants it by default).
+revoke select on public.guards from anon;
+revoke select on public.guards from authenticated;
+
+-- Give managers SELECT on ONLY the non-sensitive columns.
+grant select (id, hotel_id, name, phone, code, active, created_at)
+  on public.guards to authenticated;
+
+-- INSERT / UPDATE / DELETE privileges are intentionally left as-is so existing
+-- manager guard management (e.g. removing a guard) keeps working under RLS.
+-- Column-level privileges also block a manager from returning secret columns
+-- via UPDATE ... RETURNING / DELETE ... RETURNING.
+
+comment on column public.guards.pin_hash        is 'AUTH SECRET — bcrypt PIN hash. Not selectable by anon/authenticated; auth RPCs only.';
+comment on column public.guards.session_token   is 'AUTH SECRET — SHA-256 of the bearer token (see Issue #1A). Not selectable by anon/authenticated; auth RPCs only.';
+comment on column public.guards.session_expires is 'AUTH internal — session expiry. Not selectable by anon/authenticated; auth RPCs only.';
+comment on column public.guards.failed_attempts is 'AUTH internal — lockout counter. Not selectable by anon/authenticated; auth RPCs only.';
+comment on column public.guards.locked_until    is 'AUTH internal — lockout timestamp. Not selectable by anon/authenticated; auth RPCs only.';
+
+notify pgrst, 'reload schema';
+
+-- Done. Managers can read id/name/phone/code/active/created_at only.
 
 
 notify pgrst, 'reload schema';
