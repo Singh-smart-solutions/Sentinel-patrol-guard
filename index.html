@@ -12634,7 +12634,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   var fmtD = function (ts) { return new Date(ts).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }); };
   var mapsLink = function (g) { return "https://maps.google.com/?q=" + g.lat + "," + g.lng; };
   var GEOFENCE_M = 15;
-  var APP_VERSION = "v24";
+  var APP_VERSION = "v25";
   var scanCp = null;
   function distM(lat1, lng1, lat2, lng2) {
     var R = 6371000, r = Math.PI / 180;
@@ -12695,7 +12695,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       for (var i = 0; i < items.length; i++) {
         var it = items[i];
         try {
-          var r = await SB.rpc("record_scan", { p_token: it.token, p_checkpoint_id: it.checkpoint_id, p_status: it.status, p_note: it.note, p_severity: it.severity, p_lat: it.lat, p_lng: it.lng, p_acc: it.acc, p_scanned_at: it.scanned_at });
+          var r = await SB.rpc("record_scan", { p_token: it.token, p_checkpoint_id: it.checkpoint_id, p_status: it.status, p_note: it.note, p_severity: it.severity, p_lat: it.lat, p_lng: it.lng, p_acc: it.acc, p_scanned_at: it.scanned_at, p_photo: it.photo || null });
           if (r.error) {
             if (!navigator.onLine) break;                 // connection dropped mid-sync — stop, keep everything, retry later
             // Server rejected it. Keep retrying across syncs; only give up after
@@ -12821,7 +12821,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       return {
         id: s.id, cpId: s.checkpoint_id, cpName: s.checkpoints ? s.checkpoints.name : (s.cp_name || "—"),
         guardId: s.guard_id, guardName: s.guards ? s.guards.name : (s.guard_name || "—"),
-        status: s.status, note: s.note, severity: s.severity,
+        status: s.status, note: s.note, severity: s.severity, photo: s.photo_path || null,
         geo: s.lat != null ? { lat: s.lat, lng: s.lng, acc: s.gps_accuracy } : null,
         resolved: s.resolved, ts: Date.parse(s.scanned_at || s.created_at)
       };
@@ -12923,14 +12923,14 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     if (!issues.length) return '<div class="shead"><h2>Issue reports</h2></div>' + emptyCard("No issues reported. All checkpoints clear. ✓");
     return '<div class="shead"><h2>Issue reports</h2><span class="ey">' + issues.filter(function (i) { return !i.resolved; }).length + ' open</span></div><div style="display:grid;gap:12px">' +
       issues.map(function (s) {
-        return '<div class="card rep ' + (s.resolved ? "resolved" : "") + '"><span class="ph" style="display:grid;place-items:center;color:var(--faint)">' + warn() + '</span><div class="g"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="pill ' + sevCls(s.severity) + '"><span class="dot"></span>' + esc(s.severity || "Issue") + '</span><b>' + esc(s.cpName) + "</b>" + (s.resolved ? '<span class="pill mut">Resolved</span>' : "") + '</div><p style="margin:7px 0 8px;font-size:14.5px">' + esc(s.note || "") + '</p><div class="mono" style="font-size:12px;color:var(--faint)">' + esc(s.guardName) + " · " + fmtD(s.ts) + " " + fmtT(s.ts) + (s.geo ? ' · <a href="' + mapsLink(s.geo) + '" target="_blank" rel="noopener" style="color:var(--ok);text-decoration:none">📍 GPS ±' + s.geo.acc + "m</a>" : "") + "</div></div>" + (s.resolved ? "" : '<button class="btn btn-ghost" data-act="resolve" data-id="' + s.id + '" style="flex:none;padding:7px 11px;font-size:13px">Mark resolved</button>') + "</div>";
+        return '<div class="card rep ' + (s.resolved ? "resolved" : "") + '"><span class="ph" style="display:grid;place-items:center;color:var(--faint)">' + warn() + '</span><div class="g"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="pill ' + sevCls(s.severity) + '"><span class="dot"></span>' + esc(s.severity || "Issue") + '</span><b>' + esc(s.cpName) + "</b>" + (s.resolved ? '<span class="pill mut">Resolved</span>' : "") + '</div><p style="margin:7px 0 8px;font-size:14.5px">' + esc(s.note || "") + '</p>' + (s.photo ? '<img data-act="viewphoto" src="' + esc(s.photo) + '" alt="issue photo" style="max-height:150px;max-width:100%;border-radius:10px;border:1px solid var(--hair);cursor:zoom-in;margin-bottom:8px">' : "") + '<div class="mono" style="font-size:12px;color:var(--faint)">' + esc(s.guardName) + " · " + fmtD(s.ts) + " " + fmtT(s.ts) + (s.geo ? ' · <a href="' + mapsLink(s.geo) + '" target="_blank" rel="noopener" style="color:var(--ok);text-decoration:none">📍 GPS ±' + s.geo.acc + "m</a>" : "") + "</div></div>" + (s.resolved ? "" : '<button class="btn btn-ghost" data-act="resolve" data-id="' + s.id + '" style="flex:none;padding:7px 11px;font-size:13px">Mark resolved</button>') + "</div>";
       }).join("") + "</div>";
   }
   function panelLog() {
     var rows = state.scans;
     return '<div class="shead"><h2>Patrol log</h2><span class="ey">' + rows.length + ' scans</span></div><div class="card scroll"><table class="tbl"><thead><tr><th>Time</th><th>Date</th><th>Guard</th><th>Checkpoint</th><th>Status</th><th>Location</th><th>Note</th></tr></thead><tbody>' +
       (rows.length ? rows.map(function (s) {
-        return "<tr><td class=\"mono\">" + fmtT(s.ts) + '</td><td class="mono muted">' + fmtD(s.ts) + "</td><td>" + esc(s.guardName) + "</td><td>" + esc(s.cpName) + "</td><td>" + (s.status === "issue" ? '<span class="pill ' + sevCls(s.severity) + '"><span class="dot"></span>' + esc(s.severity || "Issue") + "</span>" : '<span class="pill ok"><span class="dot"></span>Normal</span>') + "</td><td>" + (s.geo ? '<a class="mono" href="' + mapsLink(s.geo) + '" target="_blank" rel="noopener" style="color:var(--ok);font-size:12px;text-decoration:none">📍 ±' + s.geo.acc + "m</a>" : '<span class="pill mut">no GPS</span>') + '</td><td class="muted">' + (s.note ? esc(s.note) : "—") + "</td></tr>";
+        return "<tr><td class=\"mono\">" + fmtT(s.ts) + '</td><td class="mono muted">' + fmtD(s.ts) + "</td><td>" + esc(s.guardName) + "</td><td>" + esc(s.cpName) + "</td><td>" + (s.status === "issue" ? '<span class="pill ' + sevCls(s.severity) + '"><span class="dot"></span>' + esc(s.severity || "Issue") + "</span>" : '<span class="pill ok"><span class="dot"></span>Normal</span>') + "</td><td>" + (s.geo ? '<a class="mono" href="' + mapsLink(s.geo) + '" target="_blank" rel="noopener" style="color:var(--ok);font-size:12px;text-decoration:none">📍 ±' + s.geo.acc + "m</a>" : '<span class="pill mut">no GPS</span>') + '</td><td class="muted">' + (s.photo ? '<img data-act="viewphoto" src="' + esc(s.photo) + '" alt="" style="height:26px;width:26px;object-fit:cover;border-radius:5px;vertical-align:middle;margin-right:6px;cursor:zoom-in">' : "") + (s.note ? esc(s.note) : (s.photo ? "" : "—")) + "</td></tr>";
       }).join("") : '<tr><td colspan="7"><div class="empty">No patrols recorded yet.</div></td></tr>') + "</tbody></table></div>";
   }
   function panelTeam() {
@@ -13000,13 +13000,14 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   function closeModal() { stopCam(); var m = document.querySelectorAll(".scrim"); for (var i = 0; i < m.length; i++) m[i].remove(); }
 
   function scanModal(cp) {
-    pendingSev = "Medium"; scanCp = cp; requestGeo();
+    pendingSev = "Medium"; pendingPhoto = null; scanCp = cp; requestGeo();
     var m = modal(
       '<div class="ey">Checkpoint reached</div><h3 style="margin-top:6px">' + esc(cp.name) + '</h3><div class="muted mono" style="font-size:13px;margin-top:2px">' + esc(cp.zone || "") + ' · <span id="clk">' + fmtT(now()) + '</span></div><div id="geoStatus" class="mono" style="font-size:12px;margin-top:7px;color:var(--muted)">📍 Locating…</div>' +
       '<div id="choice"><label class="f" for="note" style="margin-top:18px">Note (optional)</label><input class="inp" id="note" placeholder="e.g. all clear"><div class="big2"><button class="btn btn-primary" data-act="confirmscan" data-id="' + cp.id + '" style="justify-content:center;padding:13px">✓ All normal</button><button class="btn" data-act="reportissue" style="justify-content:center;color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,var(--hair))">⚠ Report an issue</button></div></div>' +
-      '<div id="issueform" hidden><label class="f" style="margin-top:14px">Severity</label><div class="chiprow" id="sevrow" style="justify-content:flex-start">' + ["Low", "Medium", "High"].map(function (s) { return '<button class="chip" data-act="sev" data-sev="' + s + '"' + (s === "Medium" ? ' data-on="1"' : "") + ">" + s + "</button>"; }).join("") + '</div><label class="f" for="desc" style="margin-top:14px">What’s the issue?</label><textarea class="inp" id="desc" rows="3" placeholder="Describe what you found at this location"></textarea><div class="err" id="ierr"></div><div class="big2"><button class="btn btn-primary" data-act="submitissue" data-id="' + cp.id + '" style="justify-content:center;padding:13px">Save report</button><button class="btn btn-ghost" data-act="backchoice" style="justify-content:center">Back</button></div></div>'
+      '<div id="issueform" hidden><label class="f" style="margin-top:14px">Severity</label><div class="chiprow" id="sevrow" style="justify-content:flex-start">' + ["Low", "Medium", "High"].map(function (s) { return '<button class="chip" data-act="sev" data-sev="' + s + '"' + (s === "Medium" ? ' data-on="1"' : "") + ">" + s + "</button>"; }).join("") + '</div><label class="f" for="desc" style="margin-top:14px">What’s the issue?</label><textarea class="inp" id="desc" rows="3" placeholder="Describe what you found at this location"></textarea><div style="margin-top:12px"><button class="btn btn-ghost" data-act="addphoto" style="justify-content:center;width:100%">📷 Add photo</button><input type="file" id="photoInput" accept="image/*" capture="environment" hidden><div id="photoPrev"></div></div><div class="err" id="ierr"></div><div class="big2"><button class="btn btn-primary" data-act="submitissue" data-id="' + cp.id + '" style="justify-content:center;padding:13px">Save report</button><button class="btn btn-ghost" data-act="backchoice" style="justify-content:center">Back</button></div></div>'
     );
     var clk = $("#clk", m); var iv = setInterval(function () { if (!document.body.contains(m)) { clearInterval(iv); return; } clk.textContent = fmtT(now()); }, 1000);
+    var pin = $("#photoInput", m); if (pin) pin.addEventListener("change", onPhotoPick);
     setTimeout(function () { var n = $("#note", m); if (n) n.focus(); }, 50);
   }
   function addGuardModal() {
@@ -13090,7 +13091,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     var end = new Date(dateStr + "T" + (toStr || "23:59") + ":59");
     if (end <= start) { end = new Date(end.getTime() + 24 * 3600 * 1000); } // crosses midnight (night shift)
     flash("Building report…");
-    var sel = "id,checkpoint_id,guard_id,status,note,severity,lat,lng,gps_accuracy,resolved,created_at,scanned_at,checkpoints(name,zone),guards(name)";
+    var sel = "id,checkpoint_id,guard_id,status,note,severity,lat,lng,gps_accuracy,resolved,created_at,scanned_at,photo_path,checkpoints(name,zone),guards(name)";
     var sr = await SB.from("scans").select(sel)
       .gte("scanned_at", start.toISOString()).lte("scanned_at", end.toISOString())
       .order("scanned_at", { ascending: true }).limit(5000);
@@ -13099,7 +13100,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       return {
         cpId: s.checkpoint_id, cpName: s.checkpoints ? s.checkpoints.name : "—", cpZone: s.checkpoints ? s.checkpoints.zone : "",
         guardId: s.guard_id, guardName: s.guards ? s.guards.name : "—",
-        status: s.status, note: s.note, severity: s.severity, resolved: s.resolved,
+        status: s.status, note: s.note, severity: s.severity, resolved: s.resolved, photo: s.photo_path || null,
         geo: s.lat != null ? { lat: s.lat, lng: s.lng, acc: s.gps_accuracy } : null,
         ts: Date.parse(s.scanned_at || s.created_at)
       };
@@ -13138,7 +13139,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     }).join("") || '<tr><td colspan="7" class="eod-empty">No patrols recorded in this window.</td></tr>';
 
     var issueRows = issues.map(function (s) {
-      return '<tr><td class="eod-mono">' + fmtD(s.ts) + '</td><td class="num">' + fmtT(s.ts) + "</td><td><b>" + esc(s.cpName) + "</b></td><td>" + esc(s.guardName) + "</td><td>" + (s.resolved ? '<span class="eb eb-ok">Resolved</span>' : '<span class="eb eb-warn">Open</span>') + "</td><td>" + esc(s.note || "—") + "</td></tr>";
+      var det = esc(s.note || "—") + (s.photo ? '<br><img src="' + esc(s.photo) + '" alt="" style="max-height:120px;max-width:180px;margin-top:5px;border-radius:6px;border:1px solid #d8dee6">' : "");
+      return '<tr><td class="eod-mono">' + fmtD(s.ts) + '</td><td class="num">' + fmtT(s.ts) + "</td><td><b>" + esc(s.cpName) + "</b></td><td>" + esc(s.guardName) + "</td><td>" + (s.resolved ? '<span class="eb eb-ok">Resolved</span>' : '<span class="eb eb-warn">Open</span>') + "</td><td>" + det + "</td></tr>";
     }).join("");
     var issuesBlock = issues.length
       ? sectHead("Issues reported", issues.length + "") + '<table class="eod-t"><thead><tr><th>Date</th><th>Time</th><th>Location</th><th>Inspected by</th><th>Status</th><th>Detail</th></tr></thead><tbody>' + issueRows + "</tbody></table>"
@@ -13428,6 +13430,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       case "reportissue": { var c = $("#choice"), f = $("#issueform"); if (c) c.hidden = true; if (f) { f.hidden = false; setTimeout(function () { var d = $("#desc"); if (d) d.focus(); }, 30); } break; }
       case "backchoice": { var c2 = $("#choice"), f2 = $("#issueform"); if (f2) f2.hidden = true; if (c2) c2.hidden = false; break; }
       case "sev": pendingSev = t.dataset.sev; document.querySelectorAll("#sevrow .chip").forEach(function (ch) { if (ch.dataset.sev === pendingSev) ch.setAttribute("data-on", "1"); else ch.removeAttribute("data-on"); }); break;
+      case "viewphoto": { var vsrc = t.getAttribute("src"); if (vsrc) modal('<div class="ey">Issue photo</div><div style="margin-top:10px;text-align:center"><img src="' + vsrc + '" style="max-width:100%;max-height:74vh;border-radius:10px"></div><div class="big2"><button class="btn btn-ghost" data-act="close" style="justify-content:center">Close</button></div>'); break; }
+      case "addphoto": { var pf = $("#photoInput"); if (pf) pf.click(); break; }
+      case "rmphoto": { pendingPhoto = null; var pf2 = $("#photoInput"); if (pf2) pf2.value = ""; renderPhotoPrev(); break; }
       case "confirmscan": withBusy(async function () {
         var cp = state.checkpoints.find(function (c) { return c.id === id; });
         var note = (($("#note") || {}).value || "").trim();
@@ -13452,6 +13457,31 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   document.addEventListener("change", function (e) { });
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeModal(); });
 
+  function renderPhotoPrev() {
+    var box = $("#photoPrev"); if (!box) return;
+    if (pendingPhoto) box.innerHTML = '<div style="margin-top:10px;position:relative;display:inline-block"><img src="' + pendingPhoto + '" alt="" style="max-height:120px;max-width:100%;border-radius:10px;border:1px solid var(--hair)"><button class="btn btn-ghost" data-act="rmphoto" title="Remove photo" style="position:absolute;top:6px;right:6px;padding:2px 8px;background:rgba(4,8,12,.7)">✕</button></div>';
+    else box.innerHTML = "";
+  }
+  function onPhotoPick(e) {
+    var f = e.target.files && e.target.files[0]; if (!f) return;
+    var url = URL.createObjectURL(f);
+    var img = new Image();
+    img.onload = function () {
+      try {
+        var max = 1000, w = img.naturalWidth, h = img.naturalHeight;
+        if (w > h && w > max) { h = Math.round(h * max / w); w = max; }
+        else if (h >= w && h > max) { w = Math.round(w * max / h); h = max; }
+        var c = document.createElement("canvas"); c.width = w; c.height = h;
+        c.getContext("2d").drawImage(img, 0, 0, w, h);
+        pendingPhoto = c.toDataURL("image/jpeg", 0.55);
+        // keep it small enough to store/queue reliably; retry lower quality if huge
+        if (pendingPhoto.length > 900000) pendingPhoto = c.toDataURL("image/jpeg", 0.4);
+      } catch (err) { flash("Couldn't process that photo — try again.", true); }
+      URL.revokeObjectURL(url); renderPhotoPrev();
+    };
+    img.onerror = function () { URL.revokeObjectURL(url); flash("Couldn't read that photo — try again.", true); };
+    img.src = url;
+  }
   async function doRecord(cp, status, note, severity) {
     if (!cp) return;
     var g = null;
@@ -13467,7 +13497,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     var payload = {
       id: "q" + scanTs + Math.random().toString(36).slice(2, 6),
       token: session.guard.token, checkpoint_id: cp.id, cpName: cp.name,
-      status: status, note: note || null, severity: severity,
+      status: status, note: note || null, severity: severity, photo: pendingPhoto || null,
       lat: g ? g.lat : null, lng: g ? g.lng : null, acc: g ? g.acc : null,
       scanned_at: new Date(scanTs).toISOString()
     };
@@ -13480,7 +13510,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     }
     var r;
     try {
-      r = await SB.rpc("record_scan", { p_token: payload.token, p_checkpoint_id: payload.checkpoint_id, p_status: payload.status, p_note: payload.note, p_severity: payload.severity, p_lat: payload.lat, p_lng: payload.lng, p_acc: payload.acc, p_scanned_at: payload.scanned_at });
+      r = await SB.rpc("record_scan", { p_token: payload.token, p_checkpoint_id: payload.checkpoint_id, p_status: payload.status, p_note: payload.note, p_severity: payload.severity, p_lat: payload.lat, p_lng: payload.lng, p_acc: payload.acc, p_scanned_at: payload.scanned_at, p_photo: payload.photo || null });
     } catch (e) { r = { error: e }; }
     if (r.error) {
       // If the connection dropped mid-request, queue it to sync later.
@@ -13613,7 +13643,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         if (fn === "guard_checkpoints") { return resolve({ data: db.checkpoints.slice(), error: null }); }
         if (fn === "record_scan") {
           var gd = db.guards.find(function (x) { return x.session_token === a.p_token; });
-          var sc = { id: duid(), hotel_id: "demo-hotel", checkpoint_id: a.p_checkpoint_id, guard_id: gd ? gd.id : "g1", status: a.p_status || "normal", note: a.p_note || null, severity: a.p_severity || null, lat: a.p_lat, lng: a.p_lng, gps_accuracy: a.p_acc, within_geofence: true, resolved: false, resolved_at: null, created_at: new Date().toISOString(), scanned_at: a.p_scanned_at || new Date().toISOString() };
+          var sc = { id: duid(), hotel_id: "demo-hotel", checkpoint_id: a.p_checkpoint_id, guard_id: gd ? gd.id : "g1", status: a.p_status || "normal", note: a.p_note || null, severity: a.p_severity || null, photo_path: a.p_photo || null, lat: a.p_lat, lng: a.p_lng, gps_accuracy: a.p_acc, within_geofence: true, resolved: false, resolved_at: null, created_at: new Date().toISOString(), scanned_at: a.p_scanned_at || new Date().toISOString() };
           db.scans.push(sc); save();
           return resolve({ data: { ok: true, scan_id: sc.id, verified: true, distance: 5 }, error: null });
         }
