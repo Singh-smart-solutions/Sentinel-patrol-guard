@@ -12634,7 +12634,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   var fmtD = function (ts) { return new Date(ts).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }); };
   var mapsLink = function (g) { return "https://maps.google.com/?q=" + g.lat + "," + g.lng; };
   var GEOFENCE_M = 15;
-  var APP_VERSION = "v26";
+  var APP_VERSION = "v27";
   var scanCp = null;
   function distM(lat1, lng1, lat2, lng2) {
     var R = 6371000, r = Math.PI / 180;
@@ -12805,7 +12805,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   async function loadFollowups() {
     var r = await SB.from("issue_updates").select("*").order("created_at", { ascending: true }).limit(2000);
     var map = {};
-    if (!r.error) (r.data || []).forEach(function (u) { (map[u.scan_id] = map[u.scan_id] || []).push({ note: u.note, photo: u.photo_path || null, ts: Date.parse(u.created_at) }); });
+    if (!r.error) (r.data || []).forEach(function (u) { (map[u.scan_id] = map[u.scan_id] || []).push({ note: u.note, photo: u.photo_path || null, by: u.guard_name || null, ts: Date.parse(u.created_at) }); });
     state.followups = map;
   }
   function daysSince(ts) { return Math.max(0, Math.floor((Date.now() - ts) / 86400000)); }
@@ -12934,7 +12934,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         var fups = (state.followups || {})[s.id] || [];
         var ageBadge = s.resolved ? '<span class="pill mut">Resolved</span>' : '<span class="pill ' + (daysSince(s.ts) >= 2 ? "warn" : "mut") + '">' + openDaysLabel(s.ts) + '</span>';
         var fupHtml = fups.length ? '<div style="margin-top:10px;border-top:1px solid var(--hair);padding-top:8px"><div class="ey" style="margin-bottom:6px">Follow-ups · ' + fups.length + '</div>' +
-          fups.map(function (u) { return '<div style="margin-bottom:8px"><div class="mono" style="font-size:11.5px;color:var(--faint)">' + fmtD(u.ts) + " " + fmtT(u.ts) + '</div>' + (u.note ? '<div style="font-size:13.5px">' + esc(u.note) + '</div>' : "") + (u.photo ? '<img data-act="viewphoto" src="' + esc(u.photo) + '" alt="" style="max-height:90px;border-radius:8px;border:1px solid var(--hair);margin-top:4px;cursor:zoom-in">' : "") + '</div>'; }).join("") + '</div>' : "";
+          fups.map(function (u) { return '<div style="margin-bottom:8px"><div class="mono" style="font-size:11.5px;color:var(--faint)">' + fmtD(u.ts) + " " + fmtT(u.ts) + " · " + esc(u.by || "Manager") + '</div>' + (u.note ? '<div style="font-size:13.5px">' + esc(u.note) + '</div>' : "") + (u.photo ? '<img data-act="viewphoto" src="' + esc(u.photo) + '" alt="" style="max-height:90px;border-radius:8px;border:1px solid var(--hair);margin-top:4px;cursor:zoom-in">' : "") + '</div>'; }).join("") + '</div>' : "";
         var btns = s.resolved ? "" : '<div style="display:flex;flex-direction:column;gap:6px;flex:none"><button class="btn btn-ghost" data-act="followup" data-id="' + s.id + '" style="padding:7px 11px;font-size:13px">＋ Follow up</button><button class="btn btn-ghost" data-act="resolve" data-id="' + s.id + '" style="padding:7px 11px;font-size:13px">Mark resolved</button></div>';
         return '<div class="card rep ' + (s.resolved ? "resolved" : "") + '"><span class="ph" style="display:grid;place-items:center;color:var(--faint)">' + warn() + '</span><div class="g"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="pill ' + sevCls(s.severity) + '"><span class="dot"></span>' + esc(s.severity || "Issue") + '</span><b>' + esc(s.cpName) + "</b>" + ageBadge + '</div><p style="margin:7px 0 8px;font-size:14.5px">' + esc(s.note || "") + '</p>' + (s.photo ? '<img data-act="viewphoto" src="' + esc(s.photo) + '" alt="issue photo" style="max-height:150px;max-width:100%;border-radius:10px;border:1px solid var(--hair);cursor:zoom-in;margin-bottom:8px">' : "") + '<div class="mono" style="font-size:12px;color:var(--faint)">' + esc(s.guardName) + " · reported " + fmtD(s.ts) + " " + fmtT(s.ts) + (s.geo ? ' · <a href="' + mapsLink(s.geo) + '" target="_blank" rel="noopener" style="color:var(--ok);text-decoration:none">📍 GPS ±' + s.geo.acc + "m</a>" : "") + "</div>" + fupHtml + "</div>" + btns + "</div>";
       }).join("") + "</div>";
@@ -13015,12 +13015,13 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   function scanModal(cp) {
     pendingSev = "Medium"; pendingPhoto = null; scanCp = cp; requestGeo();
     var m = modal(
-      '<div class="ey">Checkpoint reached</div><h3 style="margin-top:6px">' + esc(cp.name) + '</h3><div class="muted mono" style="font-size:13px;margin-top:2px">' + esc(cp.zone || "") + ' · <span id="clk">' + fmtT(now()) + '</span></div><div id="geoStatus" class="mono" style="font-size:12px;margin-top:7px;color:var(--muted)">📍 Locating…</div>' +
+      '<div class="ey">Checkpoint reached</div><h3 style="margin-top:6px">' + esc(cp.name) + '</h3><div class="muted mono" style="font-size:13px;margin-top:2px">' + esc(cp.zone || "") + ' · <span id="clk">' + fmtT(now()) + '</span></div><div id="geoStatus" class="mono" style="font-size:12px;margin-top:7px;color:var(--muted)">📍 Locating…</div><div id="knownIssues"></div>' +
       '<div id="choice"><label class="f" for="note" style="margin-top:18px">Note (optional)</label><input class="inp" id="note" placeholder="e.g. all clear"><div class="big2"><button class="btn btn-primary" data-act="confirmscan" data-id="' + cp.id + '" style="justify-content:center;padding:13px">✓ All normal</button><button class="btn" data-act="reportissue" style="justify-content:center;color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,var(--hair))">⚠ Report an issue</button></div></div>' +
       '<div id="issueform" hidden><label class="f" style="margin-top:14px">Severity</label><div class="chiprow" id="sevrow" style="justify-content:flex-start">' + ["Low", "Medium", "High"].map(function (s) { return '<button class="chip" data-act="sev" data-sev="' + s + '"' + (s === "Medium" ? ' data-on="1"' : "") + ">" + s + "</button>"; }).join("") + '</div><label class="f" for="desc" style="margin-top:14px">What’s the issue?</label><textarea class="inp" id="desc" rows="3" placeholder="Describe what you found at this location"></textarea><div style="margin-top:12px"><button class="btn btn-ghost" data-act="addphoto" style="justify-content:center;width:100%">📷 Add photo</button><input type="file" id="photoInput" accept="image/*" capture="environment" hidden><div id="photoPrev"></div></div><div class="err" id="ierr"></div><div class="big2"><button class="btn btn-primary" data-act="submitissue" data-id="' + cp.id + '" style="justify-content:center;padding:13px">Save report</button><button class="btn btn-ghost" data-act="backchoice" style="justify-content:center">Back</button></div></div>'
     );
     var clk = $("#clk", m); var iv = setInterval(function () { if (!document.body.contains(m)) { clearInterval(iv); return; } clk.textContent = fmtT(now()); }, 1000);
     var pin = $("#photoInput", m); if (pin) pin.addEventListener("change", onPhotoPick);
+    loadCpOpenIssues(cp, m);
     setTimeout(function () { var n = $("#note", m); if (n) n.focus(); }, 50);
   }
   function addGuardModal() {
@@ -13186,10 +13187,19 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 
     // ---- Patrol Log sheet ----
     var log = wb.addWorksheet("Patrol Log");
-    log.columns = [{ header: "Date", width: 13 }, { header: "Time", width: 9 }, { header: "Guard", width: 18 }, { header: "Location", width: 22 }, { header: "Zone", width: 16 }, { header: "Status", width: 11 }, { header: "GPS ±m", width: 9 }, { header: "Note", width: 40 }, { header: "Photo", width: 8 }];
+    log.columns = [{ header: "Date", width: 13 }, { header: "Time", width: 9 }, { header: "Guard", width: 18 }, { header: "Location", width: 22 }, { header: "Zone", width: 16 }, { header: "Status", width: 11 }, { header: "GPS ±m", width: 9 }, { header: "Note", width: 40 }, { header: "Photo", width: 22 }];
     styleHeader(log.getRow(1));
     scans.forEach(function (s) {
-      log.addRow([fmtD(s.ts), fmtT(s.ts), s.guardName, s.cpName, s.cpZone || "", s.status === "issue" ? (s.severity || "Issue") : "Normal", s.geo ? s.geo.acc : "", s.note || "", s.photo ? "Yes" : ""]);
+      var row = log.addRow([fmtD(s.ts), fmtT(s.ts), s.guardName, s.cpName, s.cpZone || "", s.status === "issue" ? (s.severity || "Issue") : "Normal", s.geo ? s.geo.acc : "", s.note || "", ""]);
+      row.alignment = { vertical: "top", wrapText: true };
+      if (s.photo && /^data:image/.test(s.photo)) {
+        try {
+          var ext = s.photo.indexOf("image/png") > -1 ? "png" : "jpeg";
+          var imgId = wb.addImage({ base64: s.photo, extension: ext });
+          row.height = 90;
+          log.addImage(imgId, { tl: { col: 8, row: row.number - 1 + 0.1 }, ext: { width: 150, height: 112 } });
+        } catch (e) { }
+      }
     });
     zebra(log, 1); log.views = [{ state: "frozen", ySplit: 1 }];
 
@@ -13199,7 +13209,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     styleHeader(iss.getRow(1));
     issues.forEach(function (s) {
       var fups = (state.followups || {})[s.id] || [];
-      var fupTxt = fups.map(function (u) { return fmtD(u.ts) + ": " + (u.note || "(photo)"); }).join("\n");
+      var fupTxt = fups.map(function (u) { return fmtD(u.ts) + " (" + (u.by || "Manager") + "): " + (u.note || "(photo)"); }).join("\n");
       var row = iss.addRow([fmtD(s.ts), fmtT(s.ts), s.resolved ? "—" : daysSince(s.ts), s.cpName, s.guardName, s.severity || "Issue", s.resolved ? "Resolved" : "Open", s.note || "", fupTxt, ""]);
       row.alignment = { vertical: "top", wrapText: true };
       if (s.photo && /^data:image/.test(s.photo)) {
@@ -13267,7 +13277,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     var issueRows = issues.map(function (s) {
       var fups = (state.followups || {})[s.id] || [];
       var det = esc(s.note || "—") + (s.photo ? '<br><img src="' + esc(s.photo) + '" alt="" style="max-height:120px;max-width:180px;margin-top:5px;border-radius:6px;border:1px solid #d8dee6">' : "");
-      if (fups.length) det += '<div style="margin-top:6px;border-top:1px dashed #ccc;padding-top:5px"><b style="font-size:11px">Follow-ups:</b>' + fups.map(function (u) { return '<div style="margin-top:3px;font-size:11.5px"><b>' + fmtD(u.ts) + ":</b> " + esc(u.note || "(photo)") + (u.photo ? '<br><img src="' + esc(u.photo) + '" alt="" style="max-height:100px;max-width:160px;margin-top:3px;border-radius:6px;border:1px solid #d8dee6">' : "") + "</div>"; }).join("") + "</div>";
+      if (fups.length) det += '<div style="margin-top:6px;border-top:1px dashed #ccc;padding-top:5px"><b style="font-size:11px">Follow-ups:</b>' + fups.map(function (u) { return '<div style="margin-top:3px;font-size:11.5px"><b>' + fmtD(u.ts) + " (" + esc(u.by || "Manager") + "):</b> " + esc(u.note || "(photo)") + (u.photo ? '<br><img src="' + esc(u.photo) + '" alt="" style="max-height:100px;max-width:160px;margin-top:3px;border-radius:6px;border:1px solid #d8dee6">' : "") + "</div>"; }).join("") + "</div>";
       var statusCell = s.resolved ? '<span class="eb eb-ok">Resolved</span>' : '<span class="eb eb-warn">Open</span><div style="font-size:10px;color:#555;margin-top:2px">' + openDaysLabel(s.ts) + "</div>";
       return '<tr><td class="eod-mono">' + fmtD(s.ts) + '</td><td class="num">' + fmtT(s.ts) + "</td><td><b>" + esc(s.cpName) + "</b></td><td>" + esc(s.guardName) + "</td><td>" + statusCell + "</td><td>" + det + "</td></tr>";
     }).join("");
@@ -13573,6 +13583,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       case "backchoice": { var c2 = $("#choice"), f2 = $("#issueform"); if (f2) f2.hidden = true; if (c2) c2.hidden = false; break; }
       case "sev": pendingSev = t.dataset.sev; document.querySelectorAll("#sevrow .chip").forEach(function (ch) { if (ch.dataset.sev === pendingSev) ch.setAttribute("data-on", "1"); else ch.removeAttribute("data-on"); }); break;
       case "viewphoto": { var vsrc = t.getAttribute("src"); if (vsrc) modal('<div class="ey">Issue photo</div><div style="margin-top:10px;text-align:center"><img src="' + vsrc + '" style="max-width:100%;max-height:74vh;border-radius:10px"></div><div class="big2"><button class="btn btn-ghost" data-act="close" style="justify-content:center">Close</button></div>'); break; }
+      case "guardfollowup": withBusy(async function () {
+        var r = await SB.rpc("guard_add_followup", { p_token: session.guard.token, p_scan_id: id, p_note: "Still not fixed — found again on patrol", p_photo: null });
+        if (r.error || !(r.data && r.data.ok)) { flash("Couldn't save follow-up — try again.", true); return; }
+        closeModal(); flash("Thanks — logged that the issue is still open.");
+      }); break;
       case "addphoto": { var pf = $("#photoInput"); if (pf) pf.click(); break; }
       case "rmphoto": { pendingPhoto = null; var pf2 = $("#photoInput"); if (pf2) pf2.value = ""; renderPhotoPrev(); break; }
       case "confirmscan": withBusy(async function () {
@@ -13599,6 +13614,19 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   document.addEventListener("change", function (e) { });
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeModal(); });
 
+  async function loadCpOpenIssues(cp, m) {
+    try {
+      var r = await SB.rpc("guard_open_issues", { p_token: session.guard.token, p_checkpoint_id: cp.id });
+      if (r.error || !r.data || !r.data.ok) return;
+      var issues = r.data.issues || [];
+      var box = $("#knownIssues", m); if (!box || !issues.length) return;
+      box.innerHTML = '<div style="margin-top:12px;padding:11px 12px;border-radius:10px;background:color-mix(in srgb,var(--warn) 13%,transparent);border:1px solid color-mix(in srgb,var(--warn) 40%,var(--hair))">' +
+        '<div class="ey" style="color:var(--warn)">Open issue at this checkpoint</div>' +
+        issues.map(function (i) {
+          return '<div style="margin-top:8px"><div style="font-size:13.5px">' + esc(i.note || "Issue reported") + '</div><div class="mono" style="font-size:11px;color:var(--faint)">reported ' + fmtD(Date.parse(i.scanned_at)) + '</div><button class="btn btn-ghost" data-act="guardfollowup" data-id="' + i.id + '" style="margin-top:6px;padding:6px 11px;font-size:12.5px;color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,var(--hair))">⚠ Still not fixed</button></div>';
+        }).join("") + '<p class="faint" style="font-size:11px;margin:9px 0 0">Tap if the same problem is still here — no photo needed.</p></div>';
+    } catch (e) { }
+  }
   function renderPhotoPrev() {
     var box = $("#photoPrev"); if (!box) return;
     if (pendingPhoto) box.innerHTML = '<div style="margin-top:10px;position:relative;display:inline-block"><img src="' + pendingPhoto + '" alt="" style="max-height:120px;max-width:100%;border-radius:10px;border:1px solid var(--hair)"><button class="btn btn-ghost" data-act="rmphoto" title="Remove photo" style="position:absolute;top:6px;right:6px;padding:2px 8px;background:rgba(4,8,12,.7)">✕</button></div>';
@@ -13782,6 +13810,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         }
         if (fn === "create_guard") { var ng = { id: duid(), hotel_id: "demo-hotel", name: a.p_name, phone: a.p_phone || null, code: String(a.p_code).toUpperCase(), pin: String(a.p_pin), active: true, session_token: null, session_expires: null, created_at: new Date().toISOString() }; db.guards.push(ng); save(); return resolve({ data: ng, error: null }); }
         if (fn === "set_guard_pin") { var gp = db.guards.find(function (x) { return x.id === a.p_guard_id; }); if (gp) { gp.pin = String(a.p_pin); save(); } return resolve({ data: null, error: null }); }
+        if (fn === "guard_open_issues") { var iss = (db.scans || []).filter(function (s) { return s.checkpoint_id === a.p_checkpoint_id && s.status === "issue" && !s.resolved; }).map(function (s) { return { id: s.id, note: s.note, severity: s.severity, scanned_at: s.scanned_at || s.created_at }; }); return resolve({ data: { ok: true, issues: iss }, error: null }); }
+        if (fn === "guard_add_followup") { var gg2 = db.guards.find(function (x) { return x.session_token === a.p_token; }); db.issue_updates = db.issue_updates || []; db.issue_updates.push({ id: duid(), hotel_id: "demo-hotel", scan_id: a.p_scan_id, note: a.p_note || null, photo_path: a.p_photo || null, guard_name: gg2 ? gg2.name : "Guard", created_at: new Date().toISOString() }); save(); return resolve({ data: { ok: true }, error: null }); }
         if (fn === "guard_checkpoints") { return resolve({ data: db.checkpoints.slice(), error: null }); }
         if (fn === "record_scan") {
           var gd = db.guards.find(function (x) { return x.session_token === a.p_token; });
