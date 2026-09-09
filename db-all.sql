@@ -84,6 +84,16 @@ returns uuid language sql stable security definer set search_path = public as $$
   select hotel_id from public.profiles where id = auth.uid();
 $$;
 
+-- SHA-256 (hex) of a guard bearer token. guards.session_token stores this
+-- hash, never the raw token, so a leaked DB row cannot be replayed. The raw
+-- token is returned to the client at login only; every guard RPC hashes the
+-- incoming token with this helper before comparing.
+create or replace function public.sg_hash_token(p_token text)
+returns text language sql immutable set search_path = public, extensions as $$
+  select encode(digest(coalesce(p_token, ''), 'sha256'), 'hex');
+$$;
+grant execute on function public.sg_hash_token(text) to anon, authenticated;
+
 -- When a manager signs up, attach them to the (single) hotel, creating it if needed
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
@@ -151,7 +161,7 @@ begin
     where upper(code) = upper(p_code) and active and pin_hash = crypt(p_pin, pin_hash);
   if g.id is null then return; end if;
   tok := encode(gen_random_bytes(18), 'hex');
-  update public.guards set session_token = tok, session_expires = now() + interval '12 hours' where id = g.id;
+  update public.guards set session_token = public.sg_hash_token(tok), session_expires = now() + interval '12 hours' where id = g.id;
   return query select g.id, g.name, tok;
 end $$;
 
@@ -160,7 +170,7 @@ create or replace function public.guard_checkpoints(p_token text)
 returns setof public.checkpoints language plpgsql security definer set search_path = public as $$
 declare g public.guards;
 begin
-  select * into g from public.guards where session_token = p_token and session_expires > now() and active;
+  select * into g from public.guards where session_token = public.sg_hash_token(p_token) and session_expires > now() and active;
   if g.id is null then raise exception 'invalid session'; end if;
   return query select * from public.checkpoints where hotel_id = g.hotel_id and active order by created_at;
 end $$;
@@ -172,7 +182,7 @@ create or replace function public.record_scan(
 ) returns uuid language plpgsql security definer set search_path = public as $$
 declare g public.guards; ck public.checkpoints; sid uuid;
 begin
-  select * into g from public.guards where session_token = p_token and session_expires > now() and active;
+  select * into g from public.guards where session_token = public.sg_hash_token(p_token) and session_expires > now() and active;
   if g.id is null then raise exception 'invalid session'; end if;
   select * into ck from public.checkpoints where id = p_checkpoint_id and hotel_id = g.hotel_id;
   if ck.id is null then raise exception 'unknown checkpoint'; end if;
@@ -244,7 +254,7 @@ declare
   g public.guards; ck public.checkpoints;
   dist double precision := null; thr int := 15; sid uuid; wgf boolean := null;
 begin
-  select * into g from public.guards where session_token = p_token and session_expires > now() and active;
+  select * into g from public.guards where session_token = public.sg_hash_token(p_token) and session_expires > now() and active;
   if g.id is null then return jsonb_build_object('ok', false, 'reason', 'session'); end if;
 
   select * into ck from public.checkpoints where id = p_checkpoint_id and hotel_id = g.hotel_id;
@@ -314,7 +324,7 @@ declare
 begin
   ts := coalesce(p_scanned_at, now());
 
-  select * into g from public.guards where session_token = p_token and session_expires > now() and active;
+  select * into g from public.guards where session_token = public.sg_hash_token(p_token) and session_expires > now() and active;
   if g.id is null then return jsonb_build_object('ok', false, 'reason', 'session'); end if;
 
   select * into ck from public.checkpoints where id = p_checkpoint_id and hotel_id = g.hotel_id;
@@ -397,9 +407,10 @@ begin
       wait := greatest(1, ceil(extract(epoch from (g.locked_until - now())) / 60));
       return jsonb_build_object('ok', false, 'reason', 'locked', 'minutes', wait);
     end if;
-    tok := encode(gen_random_bytes(18), 'hex');
+    tok := encode(gen_random_bytes(18), 'hex');           -- raw 144-bit token, returned to client only
     update public.guards
-       set session_token = tok, session_expires = now() + interval '12 hours',
+       set session_token = public.sg_hash_token(tok),     -- store ONLY the SHA-256 hash, never the raw token
+           session_expires = now() + interval '12 hours',
            failed_attempts = 0, locked_until = null
      where id = g.id;
     return jsonb_build_object('ok', true, 'id', g.id, 'name', g.name, 'token', tok);
@@ -513,7 +524,7 @@ declare
 begin
   ts := coalesce(p_scanned_at, now());
 
-  select * into g from public.guards where session_token = p_token and session_expires > now() and active;
+  select * into g from public.guards where session_token = public.sg_hash_token(p_token) and session_expires > now() and active;
   if g.id is null then return jsonb_build_object('ok', false, 'reason', 'session'); end if;
 
   select * into ck from public.checkpoints where id = p_checkpoint_id and hotel_id = g.hotel_id;
@@ -574,7 +585,7 @@ returns void language plpgsql security definer set search_path = public as $$
 begin
   update public.guards
      set session_token = null, session_expires = null
-   where session_token = p_token;
+   where session_token = public.sg_hash_token(p_token);
 end $$;
 grant execute on function public.guard_logout(text) to anon, authenticated;
 
@@ -705,7 +716,7 @@ declare
 begin
   ts := coalesce(p_scanned_at, now());
 
-  select * into g from public.guards where session_token = p_token and session_expires > now() and active;
+  select * into g from public.guards where session_token = public.sg_hash_token(p_token) and session_expires > now() and active;
   if g.id is null then return jsonb_build_object('ok', false, 'reason', 'session'); end if;
 
   select * into ck from public.checkpoints where id = p_checkpoint_id and hotel_id = g.hotel_id;
@@ -802,7 +813,7 @@ create or replace function public.guard_open_issues(p_token text, p_checkpoint_i
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare g public.guards; res jsonb;
 begin
-  select * into g from public.guards where session_token = p_token and session_expires > now() and active;
+  select * into g from public.guards where session_token = public.sg_hash_token(p_token) and session_expires > now() and active;
   if g.id is null then return jsonb_build_object('ok', false, 'reason', 'session'); end if;
   select coalesce(jsonb_agg(jsonb_build_object(
            'id', s.id, 'note', s.note, 'severity', s.severity, 'scanned_at', s.scanned_at
@@ -820,7 +831,7 @@ create or replace function public.guard_add_followup(p_token text, p_scan_id uui
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare g public.guards; sc public.scans;
 begin
-  select * into g from public.guards where session_token = p_token and session_expires > now() and active;
+  select * into g from public.guards where session_token = public.sg_hash_token(p_token) and session_expires > now() and active;
   if g.id is null then return jsonb_build_object('ok', false, 'reason', 'session'); end if;
   select * into sc from public.scans where id = p_scan_id and hotel_id = g.hotel_id;
   if sc.id is null then return jsonb_build_object('ok', false, 'reason', 'notfound'); end if;
@@ -833,6 +844,43 @@ grant execute on function public.guard_add_followup(text, uuid, text, text) to a
 notify pgrst, 'reload schema';
 
 -- Done.
+
+
+-- ==========================================================
+--  12. SECURE SESSION TOKENS AT REST (Issue #1A)
+-- ==========================================================
+-- ============================================================
+--  SENTINEL GUARD — Secure guard session tokens at rest (Issue #1A)
+--  Run ONCE in Supabase -> SQL Editor. Safe to re-run (idempotent).
+--
+--  guards.session_token now stores the SHA-256 hash of the bearer
+--  token, NEVER the raw token. The raw token is returned to the
+--  client at login only; every guard RPC hashes the incoming token
+--  (public.sg_hash_token) before comparing. PIN bcrypt is unchanged.
+--
+--  NOTE: the hashing helper and the updated RPCs live in the other
+--  migrations (db-setup / db-lockout / db-geofence / db-hardening /
+--  db-fixes / db-photo / db-guard-followup) and are all included in
+--  db-all.sql. This file documents the column and safely retires any
+--  legacy RAW tokens left from before the change.
+-- ============================================================
+
+-- 8) Document the column.
+comment on column public.guards.session_token is
+  'SHA-256 hash (hex, 64 chars) of the guard bearer session token — NOT the raw token. The raw token is returned to the client at login only and is never stored.';
+
+-- 7) Migration: invalidate any legacy RAW tokens still stored (they are 36 hex
+--    chars, from gen_random_bytes(18)). New hashes are 64 hex chars. This forces
+--    those guards to log in again rather than exposing or copying raw tokens.
+--    Idempotent: rows already holding a 64-char hash (or NULL) are left untouched.
+update public.guards
+   set session_token = null, session_expires = null
+ where session_token is not null
+   and length(session_token) <> 64;
+
+notify pgrst, 'reload schema';
+
+-- Done. Existing guard sessions were invalidated; guards simply log in again.
 
 
 notify pgrst, 'reload schema';

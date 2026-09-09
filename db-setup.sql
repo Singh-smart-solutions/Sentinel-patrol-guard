@@ -74,6 +74,16 @@ returns uuid language sql stable security definer set search_path = public as $$
   select hotel_id from public.profiles where id = auth.uid();
 $$;
 
+-- SHA-256 (hex) of a guard bearer token. guards.session_token stores this
+-- hash, never the raw token, so a leaked DB row cannot be replayed. The raw
+-- token is returned to the client at login only; every guard RPC hashes the
+-- incoming token with this helper before comparing.
+create or replace function public.sg_hash_token(p_token text)
+returns text language sql immutable set search_path = public, extensions as $$
+  select encode(digest(coalesce(p_token, ''), 'sha256'), 'hex');
+$$;
+grant execute on function public.sg_hash_token(text) to anon, authenticated;
+
 -- When a manager signs up, attach them to the (single) hotel, creating it if needed
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
@@ -141,7 +151,7 @@ begin
     where upper(code) = upper(p_code) and active and pin_hash = crypt(p_pin, pin_hash);
   if g.id is null then return; end if;
   tok := encode(gen_random_bytes(18), 'hex');
-  update public.guards set session_token = tok, session_expires = now() + interval '12 hours' where id = g.id;
+  update public.guards set session_token = public.sg_hash_token(tok), session_expires = now() + interval '12 hours' where id = g.id;
   return query select g.id, g.name, tok;
 end $$;
 
@@ -150,7 +160,7 @@ create or replace function public.guard_checkpoints(p_token text)
 returns setof public.checkpoints language plpgsql security definer set search_path = public as $$
 declare g public.guards;
 begin
-  select * into g from public.guards where session_token = p_token and session_expires > now() and active;
+  select * into g from public.guards where session_token = public.sg_hash_token(p_token) and session_expires > now() and active;
   if g.id is null then raise exception 'invalid session'; end if;
   return query select * from public.checkpoints where hotel_id = g.hotel_id and active order by created_at;
 end $$;
@@ -162,7 +172,7 @@ create or replace function public.record_scan(
 ) returns uuid language plpgsql security definer set search_path = public as $$
 declare g public.guards; ck public.checkpoints; sid uuid;
 begin
-  select * into g from public.guards where session_token = p_token and session_expires > now() and active;
+  select * into g from public.guards where session_token = public.sg_hash_token(p_token) and session_expires > now() and active;
   if g.id is null then raise exception 'invalid session'; end if;
   select * into ck from public.checkpoints where id = p_checkpoint_id and hotel_id = g.hotel_id;
   if ck.id is null then raise exception 'unknown checkpoint'; end if;

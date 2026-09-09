@@ -13,7 +13,7 @@ create or replace function public.guard_open_issues(p_token text, p_checkpoint_i
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare g public.guards; res jsonb;
 begin
-  select * into g from public.guards where session_token = p_token and session_expires > now() and active;
+  select * into g from public.guards where session_token = public.sg_hash_token(p_token) and session_expires > now() and active;
   if g.id is null then return jsonb_build_object('ok', false, 'reason', 'session'); end if;
   select coalesce(jsonb_agg(jsonb_build_object(
            'id', s.id, 'note', s.note, 'severity', s.severity, 'scanned_at', s.scanned_at
@@ -31,7 +31,7 @@ create or replace function public.guard_add_followup(p_token text, p_scan_id uui
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare g public.guards; sc public.scans;
 begin
-  select * into g from public.guards where session_token = p_token and session_expires > now() and active;
+  select * into g from public.guards where session_token = public.sg_hash_token(p_token) and session_expires > now() and active;
   if g.id is null then return jsonb_build_object('ok', false, 'reason', 'session'); end if;
   select * into sc from public.scans where id = p_scan_id and hotel_id = g.hotel_id;
   if sc.id is null then return jsonb_build_object('ok', false, 'reason', 'notfound'); end if;

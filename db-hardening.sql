@@ -29,7 +29,7 @@ declare
 begin
   ts := coalesce(p_scanned_at, now());
 
-  select * into g from public.guards where session_token = p_token and session_expires > now() and active;
+  select * into g from public.guards where session_token = public.sg_hash_token(p_token) and session_expires > now() and active;
   if g.id is null then return jsonb_build_object('ok', false, 'reason', 'session'); end if;
 
   select * into ck from public.checkpoints where id = p_checkpoint_id and hotel_id = g.hotel_id;

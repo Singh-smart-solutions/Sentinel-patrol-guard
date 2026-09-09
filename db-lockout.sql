@@ -33,9 +33,10 @@ begin
       wait := greatest(1, ceil(extract(epoch from (g.locked_until - now())) / 60));
       return jsonb_build_object('ok', false, 'reason', 'locked', 'minutes', wait);
     end if;
-    tok := encode(gen_random_bytes(18), 'hex');
+    tok := encode(gen_random_bytes(18), 'hex');           -- raw 144-bit token, returned to client only
     update public.guards
-       set session_token = tok, session_expires = now() + interval '12 hours',
+       set session_token = public.sg_hash_token(tok),     -- store ONLY the SHA-256 hash, never the raw token
+           session_expires = now() + interval '12 hours',
            failed_attempts = 0, locked_until = null
      where id = g.id;
     return jsonb_build_object('ok', true, 'id', g.id, 'name', g.name, 'token', tok);
