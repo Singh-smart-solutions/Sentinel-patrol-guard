@@ -12634,7 +12634,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   var fmtD = function (ts) { return new Date(ts).toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }); };
   var mapsLink = function (g) { return "https://maps.google.com/?q=" + g.lat + "," + g.lng; };
   var GEOFENCE_M = 15;
-  var APP_VERSION = "v31";
+  var APP_VERSION = "v32";
   var scanCp = null;
   function distM(lat1, lng1, lat2, lng2) {
     var R = 6371000, r = Math.PI / 180;
@@ -12670,17 +12670,53 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   }
 
   /* ---------- IndexedDB offline queue ---------- */
+  // Issue #1C-A: the offline queue stores SCAN DATA ONLY — never a guard bearer
+  // token, token hash, PIN, or any Supabase credential. Flushing authenticates
+  // with the current in-memory session token obtained at flush time.
   var idb = null, queuedCount = 0, flushing = false;
+  var IDB_VERSION = 2;                                  // v2: strip credentials left by older builds
+  var CRED_KEYS = ["token", "p_token", "tokenHash", "session_token", "pin", "pin_hash", "access_token", "refresh_token"];
+  // Remove any credential field from a queued record IN PLACE. Returns true if changed.
+  function stripCreds(v) {
+    var dirty = false;
+    if (v) for (var i = 0; i < CRED_KEYS.length; i++) {
+      if (Object.prototype.hasOwnProperty.call(v, CRED_KEYS[i])) { delete v[CRED_KEYS[i]]; dirty = true; }
+    }
+    return dirty;
+  }
   function openIDB() {
     return new Promise(function (res) {
       if (idb) return res(idb);
       try {
-        var rq = indexedDB.open("sentinel-guard", 1);
-        rq.onupgradeneeded = function () { rq.result.createObjectStore("queue", { keyPath: "id" }); };
+        var rq = indexedDB.open("sentinel-guard", IDB_VERSION);
+        rq.onupgradeneeded = function () {
+          var db = rq.result;
+          if (!db.objectStoreNames.contains("queue")) {
+            db.createObjectStore("queue", { keyPath: "id" });   // fresh install — nothing to scrub
+          } else {
+            // Existing queue from an older build: scrub any persisted credentials
+            // (e.g. a legacy raw session token) without dropping the scans.
+            try {
+              var store = rq.transaction.objectStore("queue");
+              var cur = store.openCursor();
+              cur.onsuccess = function () {
+                var c = cur.result; if (!c) return;
+                var v = c.value; if (stripCreds(v)) c.update(v);
+                c.continue();
+              };
+            } catch (e) { }
+          }
+        };
         rq.onsuccess = function () { idb = rq.result; res(idb); };
         rq.onerror = function () { res(null); };
       } catch (e) { res(null); }
     });
+  }
+  // Belt-and-suspenders scrub of credentials from all queued items, keeping the
+  // scans themselves (used on logout and as a defensive pass).
+  async function qScrubCreds() {
+    var items = await qAll();
+    for (var i = 0; i < items.length; i++) { if (stripCreds(items[i])) await qPut(items[i]); }
   }
   async function qPut(item) { var db = await openIDB(); if (!db) return; return new Promise(function (r) { var t = db.transaction("queue", "readwrite"); t.objectStore("queue").put(item); t.oncomplete = function () { r(); }; t.onerror = function () { r(); }; }); }
   async function qAll() { var db = await openIDB(); if (!db) return []; return new Promise(function (r) { var t = db.transaction("queue", "readonly"); var rq = t.objectStore("queue").getAll(); rq.onsuccess = function () { r(rq.result || []); }; rq.onerror = function () { r([]); }; }); }
@@ -12688,14 +12724,22 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
   async function refreshQueued() { queuedCount = (await qAll()).length; }
   var QUEUE_MAX_TRIES = 6;   // retry a queued scan across several syncs before giving up
   async function flushQueue() {
-    if (flushing || !navigator.onLine) return; flushing = true;
+    if (flushing || !navigator.onLine) return;
+    // Issue #1C-A: obtain the guard credential from the CURRENT in-memory session
+    // at flush time — the queue itself holds none. With no valid session (logged
+    // out, or restored without a live token) leave every queued scan pending;
+    // never submit a scan with a stale or absent credential.
+    var tok = (session && session.guard && session.guard.token) || null;
+    if (!tok) return;
+    flushing = true;
     var synced = 0, failed = 0;
     try {
       var items = await qAll();
       for (var i = 0; i < items.length; i++) {
         var it = items[i];
+        stripCreds(it);                                 // never carry/re-persist a credential
         try {
-          var r = await SB.rpc("record_scan", { p_token: it.token, p_checkpoint_id: it.checkpoint_id, p_status: it.status, p_note: it.note, p_severity: it.severity, p_lat: it.lat, p_lng: it.lng, p_acc: it.acc, p_scanned_at: it.scanned_at, p_photo: it.photo || null });
+          var r = await SB.rpc("record_scan", { p_token: tok, p_checkpoint_id: it.checkpoint_id, p_status: it.status, p_note: it.note, p_severity: it.severity, p_lat: it.lat, p_lng: it.lng, p_acc: it.acc, p_scanned_at: it.scanned_at, p_photo: it.photo || null });
           if (r.error) {
             if (!navigator.onLine) break;                 // connection dropped mid-sync — stop, keep everything, retry later
             // Server rejected it. Keep retrying across syncs; only give up after
@@ -13415,6 +13459,10 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         if (session.role === "manager") { try { await SB.auth.signOut(); } catch (e) { } }
         // Revoke the guard's server session so the 12h token can't be reused after "End shift".
         else if (session.guard && session.guard.token) { try { await SB.rpc("guard_logout", { p_token: session.guard.token }); } catch (e) { } }
+        // Issue #1C-A: drop the in-memory/localStorage session, and defensively
+        // ensure no queued scan carries a credential — but keep pending scans so
+        // they can still sync once a guard signs in again.
+        try { await qScrubCreds(); } catch (e) { }
         localStorage.removeItem("sg_guard");
         session = { role: null, guard: null, roundStart: now(), round: [] }; loginMode = null; render();
       }); break;
@@ -13653,9 +13701,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     // flag for a weak-GPS, no-GPS, or out-of-range attempt and returns the
     // reason (shown to the guard below). We deliberately do NOT block here, so
     // every failed attempt is captured as a flag the manager can see.
+    // Issue #1C-A: the queued payload holds SCAN DATA ONLY — no guard token or any
+    // credential. The token is supplied from the in-memory session at send time.
     var payload = {
       id: "q" + scanTs + Math.random().toString(36).slice(2, 6),
-      token: session.guard.token, checkpoint_id: cp.id, cpName: cp.name,
+      checkpoint_id: cp.id, cpName: cp.name,
       status: status, note: note || null, severity: severity, photo: pendingPhoto || null,
       lat: g ? g.lat : null, lng: g ? g.lng : null, acc: g ? g.acc : null,
       scanned_at: new Date(scanTs).toISOString()
@@ -13669,7 +13719,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     }
     var r;
     try {
-      r = await SB.rpc("record_scan", { p_token: payload.token, p_checkpoint_id: payload.checkpoint_id, p_status: payload.status, p_note: payload.note, p_severity: payload.severity, p_lat: payload.lat, p_lng: payload.lng, p_acc: payload.acc, p_scanned_at: payload.scanned_at, p_photo: payload.photo || null });
+      r = await SB.rpc("record_scan", { p_token: session.guard.token, p_checkpoint_id: payload.checkpoint_id, p_status: payload.status, p_note: payload.note, p_severity: payload.severity, p_lat: payload.lat, p_lng: payload.lng, p_acc: payload.acc, p_scanned_at: payload.scanned_at, p_photo: payload.photo || null });
     } catch (e) { r = { error: e }; }
     if (r.error) {
       // If the connection dropped mid-request, queue it to sync later.
