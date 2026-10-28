@@ -4,173 +4,181 @@ A secure, no-install **web app (PWA)** for hotel security patrols. Guards open a
 phone browser, grant camera + location, scan a checkpoint QR, and confirm "all normal" or
 report an issue with a photo. Managers manage guards and checkpoints and see every patrol live.
 
-This document describes the production tech stack, the GPS-verification and offline mechanics,
-and the database schema. (The current single-file `index.html` is a front-end demo that stores
-data in the browser; the schema below is what powers the real multi-hotel version.)
+This document describes **what is actually built and deployed** — the single-file front end,
+the two authentication models, the guard-session security design, server-side GPS verification,
+the offline queue, and the Postgres schema that powers the multi-hotel backend.
 
 ---
 
 ## 1. Tech stack
 
-### Frontend (the guard/manager app)
-- **React + Vite** (or **Next.js**) — responsive, mobile-first UI.
-- **PWA**: web app manifest + **service worker** (via Workbox) → installable, works offline.
+### Frontend — a single self-contained file
+- **`index.html`** is the entire app: vanilla JS, no build step, no framework. It bundles the
+  **`qrcode`** generator, the **`jsQR`** reader, and **supabase-js** inline.
+- **PWA**: `manifest.json` + **`sw.js`** service worker (network-first for the page, with an
+  offline cache fallback). The cache name carries the app version (e.g. `sentinel-guard-v33`);
+  bumping it on each release makes clients pick up the new build on next load.
 - **Camera QR scan**: `getUserMedia` (rear camera) + **jsQR** decoding frames on a canvas.
 - **GPS**: browser **Geolocation API** (`getCurrentPosition`, high accuracy).
-- **Offline queue**: **IndexedDB** stores scans/photos locally when offline; **Background Sync**
-  flushes them to the API when connectivity returns.
+- **Offline queue**: **IndexedDB** stores scans locally when offline and flushes them on
+  reconnect (see §6).
+- **`vercel.json`** rewrites `/test` → `index.html` (the real app lives at `/test`; the bare
+  URL is a public demo).
 
-### Backend (API + auth)
-- **Supabase** (recommended — fastest path): Postgres + Auth + Storage + row-level security,
-  or a **Node.js** API (Next.js API routes / Express) if you prefer to self-host.
-- **Auth**: staff accounts with roles (`manager`, `guard`); managers create/disable guard logins.
-- **Storage**: incident photos in **Supabase Storage** (or S3), referenced by URL in the DB.
-- **Realtime** (optional): Supabase realtime so the manager dashboard updates live.
-
-### Database
-- **PostgreSQL** — relational, with **row-level security** scoping every row to its `hotel_id`
-  (multi-tenant: one deployment can serve many hotels safely).
+### Backend — Supabase (Postgres)
+- **Supabase**: Postgres + Auth + row-level security, reached directly from the browser with the
+  **anon** public key. All privileged logic runs in **`SECURITY DEFINER` RPCs**, never in raw
+  table writes from the client.
+- **pgcrypto** for bcrypt PIN hashing (`crypt`/`gen_salt('bf')`) and SHA-256 token hashing
+  (`digest(...,'sha256')`).
+- **Realtime**: the manager dashboard subscribes to `scans` / `security_flags` so it updates live.
 
 ### Hosting
-- **Vercel** (frontend) + **Supabase** (backend/DB/storage). Both have generous free tiers.
+- **Vercel** (static front end, auto-deploys from `main`) + **Supabase** (Postgres/Auth).
 
 ---
 
-## 2. GPS location-locking (anti-cheat)
+## 2. Two authentication models
+
+The app has **two completely separate** sign-in paths:
+
+### Managers — Supabase Auth
+- Email + password via Supabase Auth. A `profiles` row links each manager to their `hotel_id`.
+- **Row-Level Security** scopes every table to `hotel_id = my_hotel()`, where `my_hotel()`
+  resolves the signed-in manager's hotel from `auth.uid()`. One deployment serves many hotels
+  with no cross-tenant leakage.
+
+### Guards — custom code + PIN → opaque bearer token
+Guards don't have email accounts. A manager issues each guard a **code** and a **PIN**.
+
+1. `guard_login(code, pin)` verifies the **bcrypt** PIN and, on success, mints an **opaque
+   144-bit bearer token** (`gen_random_bytes(18)`, 36 hex chars).
+2. The database stores **only the SHA-256 hash** of that token in `guards.session_token`, with a
+   **12-hour** `session_expires`. The raw token is returned to the browser **once**.
+3. Every guard RPC takes the raw token and re-validates it server-side:
+   `session_token = sha256(p_token) AND session_expires > now() AND active`. The guard's identity
+   and `hotel_id` are **derived server-side from the token** — the client never supplies them.
+4. **Brute-force lockout**: 5 wrong PINs lock that guard's code for 15 minutes. Lockout is applied
+   only when a code maps to exactly one active guard, so it can never lock another hotel's guard.
+
+Guard RPCs (all `SECURITY DEFINER`): `guard_checkpoints`, `record_scan`, `guard_open_issues`,
+`guard_add_followup`, `guard_logout`. Manager RPCs: `create_guard` (returns only id/name/code —
+never secrets), `set_guard_pin`.
+
+> **Why not Supabase Auth for guards?** Guards share cheap phones and sign in dozens of times a
+> shift with a short code + PIN; a full email/OAuth flow would be unusable on the floor. The
+> custom token model keeps that UX while the hardening below keeps it safe.
+
+---
+
+## 3. Guard-session security
+
+The raw token is a full credential, so the design minimises where it lives and how long it lasts:
+
+- **Hashed at rest (#1A).** `guards.session_token` holds `SHA-256(token)`, never the raw token.
+  A leaked database row cannot be replayed.
+- **Secrets hidden from managers (#1B).** Column-level privileges `REVOKE SELECT` on the auth
+  columns (`pin_hash`, `session_token`, `session_expires`, `failed_attempts`, `locked_until`)
+  from `anon`/`authenticated`; managers can read only `id, hotel_id, name, phone, code, active,
+  created_at`. The `SECURITY DEFINER` RPCs still see every column.
+- **No credentials in the offline queue (#1C-A).** The IndexedDB queue stores **scan data only**.
+  At flush time the token is read from the **in-memory** guard session; if there's no valid
+  session, queued scans stay pending rather than being sent with a stale credential.
+- **PIN reset revokes sessions (#1C-B).** `set_guard_pin` clears `session_token` and
+  `session_expires` in the **same transaction** as the PIN change, so a compromised token dies
+  immediately.
+- **Deactivation revokes sessions.** A trigger clears the token when a guard is set `active = false`.
+
+The live session is kept in memory and persisted in `localStorage["sg_guard"]` (`{id, name,
+token}`) so a guard who reopens the app within 12 hours is restored **after** the server
+re-validates the token; an expired or revoked token drops straight to the login screen.
+
+---
+
+## 4. GPS location-locking (anti-cheat)
 
 Goal: prove the guard is **physically at the checkpoint**, not scanning a printed photo from home.
+All of this is enforced **server-side** inside `record_scan`:
 
-1. When a QR is scanned, the app calls `getCurrentPosition` and captures
-   **latitude, longitude, and accuracy (metres)** alongside the scan time.
-2. Each checkpoint stores its own **lat/lng** and a **geofence radius** (e.g. 50 m).
-3. The server computes the distance between the scan location and the checkpoint location
-   (Haversine). If it's within the radius → `within_geofence = true`; otherwise the scan is
-   **flagged** for the manager to review.
-4. Accuracy is stored too — a scan with poor accuracy (e.g. ±500 m) can be treated as unverified.
+1. On scan, the app captures **latitude, longitude, accuracy (m)** and the device scan time.
+2. Each checkpoint stores its own **lat/lng**, a **geofence radius** `geofence_m` (default **15 m**),
+   and a **max GPS accuracy** `max_accuracy_m` (default **30 m**).
+3. The server computes the **Haversine distance** (`distance_m`) between the scan and the
+   checkpoint. Out of range, missing GPS, or poor/suspicious accuracy → the scan is **rejected and
+   logged to `security_flags`** with a reason (`geofence` / `no_gps` / `accuracy`) for the manager.
+4. `record_scan` returns JSON (`{ ok, reason?, distance?, threshold?, scan_id?, verified? }`) so
+   the guard sees exactly why a check-in was refused.
 
-> Note: GPS requires **HTTPS** (Vercel provides it) and the user granting location permission.
+> GPS requires **HTTPS** (Vercel provides it) and the guard granting location permission.
 
 ---
 
-## 3. Offline fallback (PWA sync)
+## 5. Photos
+
+Issue reports can carry a photo. It is **compressed client-side** (JPEG, scaled down) and stored
+**inline as a data-URI** in `scans.photo_path` — there is no separate object store to configure.
+The manager dashboard and PDF report render it from that column.
+
+---
+
+## 6. Offline fallback
 
 Hotels have dead zones (basement parking, concrete stairwells). The app must never lose a scan.
 
 1. The **service worker** caches the app shell, so the app **opens even with no signal**.
-2. A scan made offline is written to **IndexedDB** with `created_offline = true` and no `synced_at`.
-   The photo is stored locally too (as a blob).
-3. When the device is back on Wi-Fi/5G, **Background Sync** (or an on-reconnect flush) POSTs the
-   queued scans + uploads photos to the API, and the server stamps `synced_at`.
-4. The manager dashboard shows each scan's sync state, so nothing is silently missing.
+2. A scan made offline is written to **IndexedDB** (database `sentinel-guard`, store `queue`).
+   The queue holds **scan data only — no token, PIN, or any credential** (see §3).
+3. On reconnect (the `online` event) and on app boot, `flushQueue()` submits the queued scans via
+   `record_scan`, authenticating with the **current in-memory token**. Successfully synced items
+   are deleted from the queue; repeated server failures are surfaced to the guard, never dropped
+   silently.
+
+> This uses an on-reconnect flush (not the Background Sync API), which keeps behaviour predictable
+> across the basic browsers guards use.
 
 ---
 
-## 4. Database schema (PostgreSQL)
+## 7. QR codes
 
-```sql
--- One row per hotel (multi-tenant). Every other table scopes to hotel_id via RLS.
-create table hotels (
-  id           uuid primary key default gen_random_uuid(),
-  name         text not null,
-  timezone     text not null default 'Asia/Dubai',
-  created_at   timestamptz not null default now()
-);
-
--- Staff accounts: managers and guards. Managers create/disable guard logins.
-create table users (
-  id           uuid primary key default gen_random_uuid(),
-  hotel_id     uuid not null references hotels(id) on delete cascade,
-  name         text not null,
-  phone        text,
-  role         text not null check (role in ('manager','guard')),
-  pin_hash     text,                       -- hashed guard PIN (never store plain)
-  active       boolean not null default true,
-  created_at   timestamptz not null default now()
-);
-
--- Physical checkpoints. Each has a QR (encodes qr_token) and its own GPS position.
-create table checkpoints (
-  id                uuid primary key default gen_random_uuid(),
-  hotel_id          uuid not null references hotels(id) on delete cascade,
-  name              text not null,                 -- "Main Lobby"
-  zone              text,                           -- "Front of House"
-  code              text not null,                  -- "LOBBY-01" (unique per hotel)
-  qr_token          text not null,                  -- random token embedded in the QR
-  lat               double precision,               -- checkpoint's known location
-  lng               double precision,
-  geofence_radius_m integer not null default 50,
-  active            boolean not null default true,
-  created_at        timestamptz not null default now(),
-  unique (hotel_id, code)
-);
-
--- Optional: group scans into a patrol round.
-create table patrol_rounds (
-  id           uuid primary key default gen_random_uuid(),
-  hotel_id     uuid not null references hotels(id) on delete cascade,
-  guard_id     uuid not null references users(id),
-  started_at   timestamptz not null default now(),
-  ended_at     timestamptz
-);
-
--- The core record: one row every time a guard scans a checkpoint.
-create table scans (
-  id               uuid primary key default gen_random_uuid(),
-  hotel_id         uuid not null references hotels(id) on delete cascade,
-  checkpoint_id    uuid not null references checkpoints(id),
-  guard_id         uuid not null references users(id),
-  round_id         uuid references patrol_rounds(id),
-  scanned_at       timestamptz not null,           -- when the guard scanned (device time)
-  status           text not null check (status in ('normal','issue')),
-  note             text,
-  lat              double precision,               -- captured GPS
-  lng              double precision,
-  gps_accuracy_m   integer,
-  within_geofence  boolean,                         -- computed server-side
-  device_id        text,
-  created_offline  boolean not null default false,
-  synced_at        timestamptz,                     -- null until synced from offline queue
-  created_at       timestamptz not null default now()
-);
-
--- Issue reports (photo + severity). One-to-one with an 'issue' scan.
-create table incidents (
-  id            uuid primary key default gen_random_uuid(),
-  hotel_id      uuid not null references hotels(id) on delete cascade,
-  scan_id       uuid not null references scans(id) on delete cascade,
-  checkpoint_id uuid not null references checkpoints(id),
-  guard_id      uuid not null references users(id),
-  severity      text not null check (severity in ('low','medium','high')),
-  description   text not null,
-  photo_url     text,                               -- Supabase Storage / S3 URL
-  resolved      boolean not null default false,
-  resolved_by   uuid references users(id),
-  resolved_at   timestamptz,
-  created_at    timestamptz not null default now()
-);
-
--- Helpful indexes
-create index on scans (hotel_id, scanned_at desc);
-create index on scans (checkpoint_id, scanned_at desc);
-create index on incidents (hotel_id, resolved, created_at desc);
-```
-
-### Row-level security (essential for multi-hotel)
-Every table has `hotel_id`. Enable RLS and add policies so a user can only read/write rows for
-**their own hotel**, and guards can only write their own scans. Example policy sketch:
-
-```sql
-alter table scans enable row level security;
-create policy scans_same_hotel on scans
-  using (hotel_id = auth.jwt() ->> 'hotel_id');
-```
+- **Generate**: each checkpoint has a `code`; its QR encodes `…/test?cp=<code>`. Managers print a
+  **single** code, or **all codes at once** — a bulk sheet laid out **12 per A4 page** (3 across),
+  each card with name/code/zone and a dashed cut-line, so 50+ checkpoints print in one job.
+- **Scan**: guards point the rear camera; **jsQR** decodes the frame and the app resolves the
+  checkpoint, then runs the GPS check in §4.
 
 ---
 
-## 5. Why a web app (not native)
+## 8. Database schema (PostgreSQL)
+
+Core tables (all scoped to `hotel_id`, RLS enabled; the full DDL lives in `db-all.sql`):
+
+- **`hotels`** — one row per hotel (multi-tenant root).
+- **`profiles`** — manager ↔ hotel link (`id` = `auth.users.id`, `hotel_id`).
+- **`guards`** — `code`, `pin_hash` (bcrypt), `session_token` (SHA-256 of the bearer token),
+  `session_expires`, `failed_attempts`, `locked_until`, `active`, `hotel_id`.
+- **`checkpoints`** — `name`, `zone`, `code`, `lat`, `lng`, `geofence_m` (default 15),
+  `max_accuracy_m` (default 30), `active`, `hotel_id`.
+- **`scans`** — `checkpoint_id`, `guard_id`, `status` (`normal`/`issue`), `note`, `severity`,
+  `photo_path`, `lat`, `lng`, `gps_accuracy`, `within_geofence`, `scanned_at`, `resolved`, `hotel_id`.
+- **`security_flags`** — audit of refused/suspicious check-ins (reason, distance, accuracy, where).
+- **`issue_updates`** — follow-up notes/photos a guard adds to an open issue.
+
+Privileged access is funnelled through `SECURITY DEFINER` RPCs (listed in §2); clients never
+write these tables directly. Helper functions: `my_hotel()`, `sg_hash_token()`, `distance_m()`.
+
+### Row-level security
+Every table has `hotel_id` and RLS enabled. Manager-facing policies use
+`hotel_id = my_hotel()`; guard access goes exclusively through the token-validated RPCs, which
+derive the hotel server-side. The result: one deployment safely serves many hotels, and a guard
+token is useless outside its own hotel's data.
+
+---
+
+## 9. Why a web app (not native)
 
 - **Zero install**: guards open a bookmarked link in Safari/Chrome — works on any basic phone.
-- **Instant updates**: fix a bug or add a feature → every guard gets it on next refresh.
+- **Instant updates**: push to `main` → Vercel redeploys → every guard gets it on next refresh
+  (the versioned service-worker cache triggers the update).
 - **Lower cost**: one responsive codebase vs. separate iOS + Android apps.
 - Still gets camera, GPS, offline caching and "install to home screen" via PWA APIs.
 
