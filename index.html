@@ -137,16 +137,15 @@
     #printArea .pn{font:700 28px system-ui;margin-top:18px}
     #printArea .pc{font:600 20px ui-monospace,monospace;color:#333;margin-top:6px;letter-spacing:.06em}
     #printArea .pb{font:600 13px system-ui;color:#666;margin-top:22px;letter-spacing:.1em}
-    /* Print-all-QR sheet: many codes laid out two-up on A4, each card kept whole across page breaks */
+    /* Print-all-QR sheet: 12 codes per A4 (3 across x 4 down), each card kept whole across page breaks */
     body.printing-sheet{background:#fff !important}
     #printArea.sheet{padding-top:0;text-align:left;color:#000}
-    #printArea .qrSheet{display:grid;grid-template-columns:1fr 1fr;gap:8mm 10mm}
-    #printArea .qrSheet .qrCard{page-break-inside:avoid;break-inside:avoid;text-align:center;padding:5mm 3mm 6mm;border:1px dashed #9aa0a6;border-radius:8px;background:#fff;color:#000;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    #printArea .qrSheet .qrCard img{width:56mm;height:56mm;image-rendering:pixelated;margin:0 auto;display:block}
-    #printArea .qrSheet .qrCard .pn{font:700 15px system-ui;color:#000;margin-top:7px}
-    #printArea .qrSheet .qrCard .pc{font:600 13px ui-monospace,monospace;color:#333;margin-top:3px;letter-spacing:.06em}
-    #printArea .qrSheet .qrCard .pz{font:500 11px system-ui;color:#555;margin-top:2px}
-    #printArea .qrSheet .qrCard .pb{font:600 9px system-ui;color:#808080;margin-top:7px;letter-spacing:.08em}
+    #printArea .qrSheet{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6mm 5mm}
+    #printArea .qrSheet .qrCard{page-break-inside:avoid;break-inside:avoid;text-align:center;padding:3mm 2mm 3.5mm;border:1px dashed #9aa0a6;border-radius:7px;background:#fff;color:#000;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    #printArea .qrSheet .qrCard img{width:42mm;height:42mm;image-rendering:pixelated;margin:0 auto;display:block}
+    #printArea .qrSheet .qrCard .pn{font:700 11px system-ui;color:#000;margin-top:4px;line-height:1.15}
+    #printArea .qrSheet .qrCard .pc{font:600 10px ui-monospace,monospace;color:#222;margin-top:2px;letter-spacing:.05em}
+    #printArea .qrSheet .qrCard .pz{font:500 8.5px system-ui;color:#555;margin-top:1px}
     body.printing-eod{background:#fff !important}
     body.printing-eod #printArea{display:none !important}
     body.printing-eod #eodArea{display:block !important}
@@ -13132,8 +13131,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     pa.innerHTML = '<img src="' + data + '" alt=""><div class="pn">' + esc(cp.name) + '</div><div class="pc">' + esc(cp.code) + '</div><div class="pb">SENTINEL GUARD · SCAN ON PATROL</div>';
     setTimeout(function () { window.print(); }, 60);
   }
-  // Print EVERY checkpoint's QR on one set of A4 sheets (two-up), so a manager
-  // with 50+ points prints once instead of opening each code separately.
+  // Print EVERY checkpoint's QR on one set of A4 sheets (12 per page, 3 across),
+  // so a manager with 50+ points prints once instead of opening each separately.
   function printAllQR() {
     var cps = state.checkpoints || [];
     if (!cps.length) { flash("No checkpoints to print yet.", true); return; }
@@ -13145,7 +13144,6 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         '<div class="pn">' + esc(cp.name) + '</div>' +
         '<div class="pc">' + esc(cp.code) + '</div>' +
         (cp.zone ? '<div class="pz">' + esc(cp.zone) + '</div>' : '') +
-        '<div class="pb">SENTINEL GUARD · SCAN ON PATROL</div>' +
       '</div>';
     }).join("");
     pa.className = "sheet";
